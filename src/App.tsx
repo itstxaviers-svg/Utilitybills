@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArrowLeft,
   Bell,
   BellRing,
   Building2,
@@ -45,6 +46,7 @@ import {
   getSelectedMeterIds,
   lifetimePoints,
   loadState,
+  METER_UTILITY_IDS,
   makeJournal,
   makeLedger,
   monthKeyToDate,
@@ -78,7 +80,7 @@ function UtilityIcon({ utility, size = 20 }: { utility: UtilityTemplate; size?: 
   return <span className={`utility-icon tone-${utility.tone}`}><Icon size={size} strokeWidth={1.9} /></span>;
 }
 
-function Modal({ title, children, onClose, className = "" }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
+function Modal({ title, children, onClose, onBack, className = "" }: { title: string; children: ReactNode; onClose: () => void; onBack?: () => void; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -102,7 +104,11 @@ function Modal({ title, children, onClose, className = "" }: { title: string; ch
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={ref} className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={title}>
-        <header className="modal-header"><div><span className="eyebrow">Focus Tool</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть"><X /></button></header>
+        <header className={`modal-header ${onBack ? "has-back" : ""}`}>
+          {onBack && <button className="icon-button modal-back-button" onClick={onBack} aria-label="Назад в профиль"><ArrowLeft /></button>}
+          <div className="modal-heading"><span className="eyebrow">Focus Tool</span><h2>{title}</h2></div>
+          <button className="icon-button modal-close-button" onClick={onClose} aria-label="Закрыть и вернуться на главный экран"><X /></button>
+        </header>
         {children}
       </section>
     </div>
@@ -145,21 +151,6 @@ function TopBarClock() {
   const compactDate = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(now);
   const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
   return <><div className="top-date"><span>{date}</span><strong>{time}</strong></div><div className="mobile-time"><span>{compactDate}</span><strong>{time}</strong></div></>;
-}
-
-function LiveClockCard({ deadline }: { deadline: ReturnType<typeof nextDeadlineText> }) {
-  const now = useClock();
-  const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
-  const compactDate = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(now);
-  return <article className="card live-clock-card">
-    <div className="clock-title"><span>✦</span><div><span className="eyebrow">Сейчас</span><h2>Focus Tool</h2></div><span>✦</span></div>
-    <div className="clock-orbit" aria-label={`Текущее время ${time}`}>
-      <span className="orbit-star orbit-star-one">✦</span><span className="orbit-star orbit-star-two">·</span><span className="orbit-moon">☾</span>
-      <div className="clock-inner"><small>{new Intl.DateTimeFormat("ru-RU", { weekday: "long" }).format(now)}</small><strong>{time}</strong><span>{compactDate}</span></div>
-      <Gem className="clock-gem" />
-    </div>
-    <div className="clock-note"><MoonStar /><span><strong>{deadline.body}</strong><small>{deadline.foot}</small></span></div>
-  </article>;
 }
 
 function AvatarDisplay({ state, size = "normal" }: { state: AppState; size?: "normal" | "large" }) {
@@ -220,6 +211,7 @@ export default function App() {
   const paidCount = state.utilities.filter((utility) => utility.enabled && ledger.payments[utility.id]).length;
   const selectedMeterIds = getSelectedMeterIds(state, monthKey);
   const readingUtilities = selectedMeterIds.map((id) => state.utilities.find((utility) => utility.id === id)!).filter(Boolean);
+  const availableMeterUtilities = METER_UTILITY_IDS.map((id) => state.utilities.find((utility) => utility.id === id)!).filter(Boolean);
   const readingsCount = readingUtilities.filter((utility) => ledger.readings[utility.id]).length;
   const monthPaidTotal = monthTotal(state, monthKey);
   const activeBadge = badgeById(state.badgeCollection.activeBadgeId);
@@ -362,6 +354,7 @@ export default function App() {
     return { ...event, utility, payment };
   });
   const totalMonthlyActions = 7 + readingUtilities.length;
+  const readingDeadlineLabel = `До 20 ${new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(monthKeyToDate(monthKey))}`;
 
   return (
     <div className={`app ${state.profile.reducedEffects ? "effects-reduced" : ""}`}>
@@ -402,20 +395,23 @@ export default function App() {
             {paidCount === 7 && <div className="earned-teaser"><Sparkles /> Все платежи месяца закрыты. Награда заработана и откроется после завершения месяца.</div>}
           </article>
 
-          <article className="card readings-card">
-            <div className="section-heading compact"><div><span className="eyebrow">До 20 числа</span><h2>Показания</h2><p>{state.meterSettings.configured ? "Отметьте факт передачи показаний" : "Сначала выберите свои счётчики"}</p></div><div className="readings-tools"><button className="settings-button" onClick={() => setMeterSettingsOpen(true)}><Settings2 /> <span>Настроить</span></button>{state.meterSettings.configured && <div className="mini-progress"><strong>{readingsCount}</strong> / {readingUtilities.length}</div>}</div></div>
-            {!state.meterSettings.configured ? <div className="meter-empty"><Settings2 /><div><strong>Какие показания вы передаёте?</strong><p>Настройка сохранится для следующих месяцев.</p></div><button className="primary" onClick={() => setMeterSettingsOpen(true)}>Выбрать счётчики</button></div> : readingUtilities.length === 0 ? <div className="meter-empty compact"><Check /><div><strong>Показания не выбраны</strong><p>Для идеального месяца достаточно платежей вовремя.</p></div></div> : <div className="readings-grid">
-              {readingUtilities.map((utility) => {
-                const reading = ledger.readings[utility.id];
-                const overdue = !reading && now.getTime() > getDeadline(monthKey, 20);
-                return <button key={utility.id} className={`reading-item ${reading ? "is-done" : ""}`} onClick={() => toggleReading(utility.id)}><UtilityIcon utility={utility} size={18} /><span><strong>{utility.name}</strong><small>{reading ? (reading.onTime ? "Внесены вовремя" : "Внесены с опозданием") : overdue ? "Просрочено" : "Не внесены"}</small></span><i>{reading ? <Check /> : "+"}</i></button>;
-              })}
-            </div>}
-          </article>
         </section>
 
         <section className="center-column">
-          <LiveClockCard deadline={deadline} />
+          <article className="card readings-card central-readings-card">
+            <div className="section-heading compact"><div><span className="eyebrow">До 20 числа</span><h2>Показания</h2><p>{state.meterSettings.configured ? readingDeadlineLabel : "Сначала выберите свои счётчики"}</p></div><div className="readings-tools"><button className="settings-button" onClick={() => setMeterSettingsOpen(true)}><Settings2 /> <span>Настроить</span></button>{state.meterSettings.configured && <div className="mini-progress"><strong>{readingsCount}</strong> / {readingUtilities.length}</div>}</div></div>
+            {!state.meterSettings.configured ? <div className="meter-onboarding"><div className="meter-empty central-meter-empty"><Settings2 /><div><strong>Какие показания вы передаёте?</strong><p>Настройка сохранится для следующих месяцев.</p></div><button className="primary" onClick={() => setMeterSettingsOpen(true)}>Выбрать счётчики</button></div><div className="meter-options-preview">{availableMeterUtilities.map((utility) => <div key={utility.id}><UtilityIcon utility={utility} size={18} /><span>{utility.name}</span></div>)}</div><p className="meter-onboarding-note">Выберите только те счётчики, которые есть у вас дома. Набор можно изменить в любое время.</p></div> : readingUtilities.length === 0 ? <div className="meter-empty compact central-meter-empty"><Check /><div><strong>Показания не выбраны</strong><p>Для идеального месяца достаточно платежей вовремя.</p></div></div> : <>
+              <div className="readings-grid">
+                {readingUtilities.map((utility) => {
+                  const reading = ledger.readings[utility.id];
+                  const overdue = !reading && now.getTime() > getDeadline(monthKey, 20);
+                  const status = reading ? (reading.onTime ? "Внесены вовремя" : "Внесены с опозданием") : overdue ? "Просрочено" : "Не внесены";
+                  return <button key={utility.id} aria-label={`${utility.name}: ${status}`} className={`reading-item ${reading ? "is-done" : ""}`} onClick={() => toggleReading(utility.id)}><UtilityIcon utility={utility} size={18} /><span><strong>{utility.name}</strong><small>{status}{reading ? ` · ${formatDate(reading.submittedAt)}` : ""}</small></span><i>{reading ? <Check /> : "+"}</i></button>;
+                })}
+              </div>
+              <div className="readings-summary"><div><span>Передано</span><strong>{readingsCount} из {readingUtilities.length}</strong></div><span className="readings-progress"><i style={{ width: `${(readingsCount / readingUtilities.length) * 100}%` }} /></span></div>
+            </>}
+          </article>
 
           <article className="card month-summary-card">
             <div className="section-heading compact"><div><span className="eyebrow">Итоги месяца</span><h2>{formatMonth(monthKey)}</h2></div><Star className="gold-star" /></div>
@@ -469,7 +465,7 @@ export default function App() {
 
       {meterSettingsOpen && <MeterSettingsModal state={state} monthKey={monthKey} update={update} onClose={() => setMeterSettingsOpen(false)} onSaved={() => { setMeterSettingsOpen(false); setToast("Настройки показаний сохранены"); }} />}
 
-      {panel === "collection" && <Modal title="Коллекция наград" onClose={() => setPanel(null)} className="large-modal collection-modal"><div className="collection-top"><div><span>Собрано</span><strong>{state.badgeCollection.unlocked.length} / 12</strong></div><p>{state.badgeCollection.unlocked.length === 12 ? "Полная коллекция ✨" : "Закрывайте все семь платежей месяца, чтобы открывать новые значки."}</p></div><div className="constellation-progress"><i style={{ width: `${(state.badgeCollection.unlocked.length / 12) * 100}%` }} /></div><div className="badge-grid">{BADGES.map((badge) => { const unlock = state.badgeCollection.unlocked.find((item) => item.badgeId === badge.id); const active = state.badgeCollection.activeBadgeId === badge.id; return <button key={badge.id} disabled={!unlock} className={`${unlock ? "unlocked" : "locked"} ${active ? "active" : ""}`} onClick={() => unlock && update((draft) => { draft.badgeCollection.activeBadgeId = badge.id; })}>{unlock ? <ArtImage src={badge.src} alt={badge.name} /> : <span className="locked-art"><Lock /></span>}<strong>{badge.name}</strong><small>{unlock ? `${formatMonth(unlock.earnedForMonthKey)}${active ? " · Активная" : ""}` : "Пока закрыта"}</small></button>; })}</div></Modal>}
+      {panel === "collection" && <Modal title="Коллекция наград" onBack={() => setPanel("profile")} onClose={() => setPanel(null)} className="large-modal collection-modal"><div className="collection-top"><div><span>Собрано</span><strong>{state.badgeCollection.unlocked.length} / 12</strong></div><p>{state.badgeCollection.unlocked.length === 12 ? "Полная коллекция ✨" : "Закрывайте все семь платежей месяца, чтобы открывать новые значки."}</p></div><div className="constellation-progress"><i style={{ width: `${(state.badgeCollection.unlocked.length / 12) * 100}%` }} /></div><div className="badge-grid">{BADGES.map((badge) => { const unlock = state.badgeCollection.unlocked.find((item) => item.badgeId === badge.id); const active = state.badgeCollection.activeBadgeId === badge.id; return <button key={badge.id} disabled={!unlock} className={`${unlock ? "unlocked" : "locked"} ${active ? "active" : ""}`} onClick={() => unlock && update((draft) => { draft.badgeCollection.activeBadgeId = badge.id; })}>{unlock ? <ArtImage src={badge.src} alt={badge.name} /> : <span className="locked-art"><Lock /></span>}<strong>{badge.name}</strong><small>{unlock ? `${formatMonth(unlock.earnedForMonthKey)}${active ? " · Активная" : ""}` : "Пока закрыта"}</small></button>; })}</div></Modal>}
 
       {panel === "archive" && <Modal title="Архив" onClose={() => setPanel(null)} className="large-modal archive-modal"><ArchiveContent state={state} currentYear={now.getFullYear()} /></Modal>}
 
