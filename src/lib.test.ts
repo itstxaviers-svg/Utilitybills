@@ -29,7 +29,7 @@ describe("производные итоги", () => {
     expect(lifetimePoints(state)).toBe(50);
   });
 
-  it("требует все семь платежей и только выбранные показания вовремя", () => {
+  it("требует все платежи и только выбранные показания вовремя", () => {
     const state = createDefaultState(new Date(2026, 7, 13));
     const key = "2026-08";
     state.meterSettings = { configured: true, selected: { "hot-water": false, "cold-water": true, gas: false, electricity: true } };

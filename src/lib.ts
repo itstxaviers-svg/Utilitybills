@@ -80,7 +80,7 @@ function sanitizeState(value: unknown, now = new Date()): AppState {
     ...raw,
     version: 2,
     profile: { ...defaults.profile, ...profile },
-    utilities: Array.isArray(raw.utilities) && raw.utilities.length === 7 ? raw.utilities : defaults.utilities,
+    utilities: defaults.utilities.map((utility) => ({ ...utility, ...(Array.isArray(raw.utilities) ? raw.utilities.find((item) => item?.id === utility.id) : null) })),
     meterSettings: {
       configured: Boolean(meterSettings.configured),
       selected: { ...defaults.meterSettings.selected, ...(meterSettings.selected ?? {}) },
@@ -238,7 +238,7 @@ export function nextDeadlineText(state: AppState, now = new Date()) {
   const selectedMeterIds = getSelectedMeterIds(state, monthKey);
   const readingsLeft = selectedMeterIds.filter((id) => !ledger.readings[id]).length;
   const monthName = new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(now);
-  if (paymentsLeft) return { title: "Ближайший срок", body: `Оплата услуг — до 15 ${monthName}`, foot: `Осталось ${paymentsLeft} из 7` };
+  if (paymentsLeft) return { title: "Ближайший срок", body: `Оплата услуг — до 15 ${monthName}`, foot: `Осталось ${paymentsLeft} из ${state.utilities.filter((utility) => utility.enabled).length}` };
   if (readingsLeft) return { title: "Ближайший срок", body: `Показания — до 20 ${monthName}`, foot: `Осталось ${readingsLeft} из ${selectedMeterIds.length}` };
   return { title: "На этот месяц всё готово ✨", body: "Можно спокойно выдохнуть", foot: "Все обязательства закрыты" };
 }

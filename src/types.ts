@@ -5,6 +5,7 @@ export type UtilityId =
   | "capital-repair"
   | "housing-services"
   | "electricity"
+  | "internet"
   | "waste";
 
 export type MeterUtilityId = "hot-water" | "cold-water" | "gas" | "electricity";
@@ -27,7 +28,7 @@ export type UtilityTemplate = {
   id: UtilityId;
   name: string;
   shortName?: string;
-  icon: "droplets" | "flame" | "wrench" | "building" | "zap" | "recycle";
+  icon: "droplets" | "flame" | "wrench" | "building" | "zap" | "wifi" | "recycle";
   tone: string;
   requiresMeterReading: boolean;
   enabled: boolean;

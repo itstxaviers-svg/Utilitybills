@@ -96,7 +96,7 @@ for (const [label, item] of Object.entries(viewportResults)) {
 if (meterPickerCount !== 4 || !meterState.configured || meterState.visibleRows !== 3 || meterState.progress !== "0 / 3") failures.push("meter settings");
 if (!profileInput.scrollable || profileInput.overflowY !== "auto" || profileDraft.input !== "Вера быстро!" || profileDraft.input !== profileDraft.storedName || profileDraft.textarea !== profileDraft.storedThought) failures.push("profile input/autosave");
 if (!resetProtection.disabledImmediately || !resetProtection.enabledAfterDelay || !resetProtection.dataUntouched) failures.push("double reset protection");
-if (isolatedClock !== 0 || result.utilities !== 7) failures.push("isolated clock/core utilities");
+if (isolatedClock !== 0 || result.utilities !== 8) failures.push("isolated clock/core utilities");
 
 console.log(JSON.stringify({ ok: failures.length === 0, failures, ...result }, null, 2));
 socket.close();

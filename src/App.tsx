@@ -23,6 +23,7 @@ import {
   Trash2,
   Upload,
   WalletCards,
+  Wifi,
   Wrench,
   X,
   Zap,
@@ -72,6 +73,7 @@ const iconMap = {
   wrench: Wrench,
   building: Building2,
   zap: Zap,
+  wifi: Wifi,
   recycle: Recycle,
 };
 
@@ -209,6 +211,7 @@ export default function App() {
   const totalPoints = lifetimePoints(state);
   const currentMonthPoints = pointsForMonth(state, monthKey);
   const paidCount = state.utilities.filter((utility) => utility.enabled && ledger.payments[utility.id]).length;
+  const enabledUtilitiesCount = state.utilities.filter((utility) => utility.enabled).length;
   const selectedMeterIds = getSelectedMeterIds(state, monthKey);
   const readingUtilities = selectedMeterIds.map((id) => state.utilities.find((utility) => utility.id === id)!).filter(Boolean);
   const availableMeterUtilities = METER_UTILITY_IDS.map((id) => state.utilities.find((utility) => utility.id === id)!).filter(Boolean);
@@ -353,7 +356,7 @@ export default function App() {
     const payment = event.type === "payment" ? eventLedger?.payments[event.utilityId] : null;
     return { ...event, utility, payment };
   });
-  const totalMonthlyActions = 7 + readingUtilities.length;
+  const totalMonthlyActions = enabledUtilitiesCount + readingUtilities.length;
   const readingDeadlineLabel = `До 20 ${new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(monthKeyToDate(monthKey))}`;
 
   return (
@@ -377,7 +380,7 @@ export default function App() {
           </article>
 
           <article className="card payment-card">
-            <div className="section-heading"><div><span className="eyebrow">Главное на месяц</span><h1>К оплате <Sparkles size={20} /></h1><p>Оплатите все услуги до 15 числа</p></div><div className="progress-orb"><strong>{paidCount}</strong><span>/ 7</span></div></div>
+            <div className="section-heading"><div><span className="eyebrow">Главное на месяц</span><h1>К оплате <Sparkles size={20} /></h1><p>Оплатите все услуги до 15 числа</p></div><div className="progress-orb"><strong>{paidCount}</strong><span>/ {enabledUtilitiesCount}</span></div></div>
             <div className="utility-list">
               {state.utilities.filter((utility) => utility.enabled).map((utility) => {
                 const payment = ledger.payments[utility.id];
@@ -392,7 +395,7 @@ export default function App() {
                 );
               })}
             </div>
-            {paidCount === 7 && <div className="earned-teaser"><Sparkles /> Все платежи месяца закрыты. Награда заработана и откроется после завершения месяца.</div>}
+            {paidCount === enabledUtilitiesCount && <div className="earned-teaser"><Sparkles /> Все платежи месяца закрыты. Награда заработана и откроется после завершения месяца.</div>}
           </article>
 
         </section>
@@ -416,7 +419,7 @@ export default function App() {
           <article className="card month-summary-card">
             <div className="section-heading compact"><div><span className="eyebrow">Итоги месяца</span><h2>{formatMonth(monthKey)}</h2></div><Star className="gold-star" /></div>
             <div className="summary-total"><span>Оплачено</span><strong>{formatKopecks(monthPaidTotal)}</strong></div>
-            <div className="summary-stats"><div><WalletCards /><span><strong>{paidCount} / 7</strong> услуг</span></div><div><CalendarDays /><span><strong>{readingsCount} / {readingUtilities.length}</strong> показаний</span></div><div><Gem /><span><strong>{currentMonthPoints}</strong> очков</span></div></div>
+            <div className="summary-stats"><div><WalletCards /><span><strong>{paidCount} / {enabledUtilitiesCount}</strong> услуг</span></div><div><CalendarDays /><span><strong>{readingsCount} / {readingUtilities.length}</strong> показаний</span></div><div><Gem /><span><strong>{currentMonthPoints}</strong> очков</span></div></div>
             <div className="reward-progress"><div><span>Лунный путь месяца</span><strong>{Math.round(((paidCount + readingsCount) / totalMonthlyActions) * 100)}%</strong></div><span><i style={{ width: `${((paidCount + readingsCount) / totalMonthlyActions) * 100}%` }} /></span></div>
             {januaryAnnualSummary && <div className="january-summary"><span>Итоги {now.getFullYear() - 1} года</span><strong>{formatKopecks(januaryAnnualSummary.totalPaidKopecks)}</strong><small>{januaryAnnualSummary.perfectMonths} идеальных месяцев · {januaryAnnualSummary.totalPoints} очков</small></div>}
             <button className="secondary wide" onClick={() => setPanel("archive")}><Archive /> Открыть архив</button>
@@ -465,7 +468,7 @@ export default function App() {
 
       {meterSettingsOpen && <MeterSettingsModal state={state} monthKey={monthKey} update={update} onClose={() => setMeterSettingsOpen(false)} onSaved={() => { setMeterSettingsOpen(false); setToast("Настройки показаний сохранены"); }} />}
 
-      {panel === "collection" && <Modal title="Коллекция наград" onBack={() => setPanel("profile")} onClose={() => setPanel(null)} className="large-modal collection-modal"><div className="collection-top"><div><span>Собрано</span><strong>{state.badgeCollection.unlocked.length} / 12</strong></div><p>{state.badgeCollection.unlocked.length === 12 ? "Полная коллекция ✨" : "Закрывайте все семь платежей месяца, чтобы открывать новые значки."}</p></div><div className="constellation-progress"><i style={{ width: `${(state.badgeCollection.unlocked.length / 12) * 100}%` }} /></div><div className="badge-grid">{BADGES.map((badge) => { const unlock = state.badgeCollection.unlocked.find((item) => item.badgeId === badge.id); const active = state.badgeCollection.activeBadgeId === badge.id; return <button key={badge.id} disabled={!unlock} className={`${unlock ? "unlocked" : "locked"} ${active ? "active" : ""}`} onClick={() => unlock && update((draft) => { draft.badgeCollection.activeBadgeId = badge.id; })}>{unlock ? <ArtImage src={badge.src} alt={badge.name} /> : <span className="locked-art"><Lock /></span>}<strong>{badge.name}</strong><small>{unlock ? `${formatMonth(unlock.earnedForMonthKey)}${active ? " · Активная" : ""}` : "Пока закрыта"}</small></button>; })}</div></Modal>}
+      {panel === "collection" && <Modal title="Коллекция наград" onBack={() => setPanel("profile")} onClose={() => setPanel(null)} className="large-modal collection-modal"><div className="collection-top"><div><span>Собрано</span><strong>{state.badgeCollection.unlocked.length} / 12</strong></div><p>{state.badgeCollection.unlocked.length === 12 ? "Полная коллекция ✨" : "Закрывайте все платежи месяца, чтобы открывать новые значки."}</p></div><div className="constellation-progress"><i style={{ width: `${(state.badgeCollection.unlocked.length / 12) * 100}%` }} /></div><div className="badge-grid">{BADGES.map((badge) => { const unlock = state.badgeCollection.unlocked.find((item) => item.badgeId === badge.id); const active = state.badgeCollection.activeBadgeId === badge.id; return <button key={badge.id} disabled={!unlock} className={`${unlock ? "unlocked" : "locked"} ${active ? "active" : ""}`} onClick={() => unlock && update((draft) => { draft.badgeCollection.activeBadgeId = badge.id; })}>{unlock ? <ArtImage src={badge.src} alt={badge.name} /> : <span className="locked-art"><Lock /></span>}<strong>{badge.name}</strong><small>{unlock ? `${formatMonth(unlock.earnedForMonthKey)}${active ? " · Активная" : ""}` : "Пока закрыта"}</small></button>; })}</div></Modal>}
 
       {panel === "archive" && <Modal title="Архив" onClose={() => setPanel(null)} className="large-modal archive-modal"><ArchiveContent state={state} currentYear={now.getFullYear()} /></Modal>}
 
@@ -553,5 +556,6 @@ function MeterSettingsModal({ state, monthKey, update, onClose, onSaved }: { sta
 function ArchiveContent({ state, currentYear }: { state: AppState; currentYear: number }) {
   const years = [...new Set(Object.keys(state.ledgers).map((key) => Number(key.slice(0, 4))))].sort((a, b) => b - a);
   const currentSummary = buildAnnualSummary(state, currentYear);
-  return <div className="archive-content"><div className="archive-year-total"><span>За {currentYear} год</span><strong>{formatKopecks(currentSummary.totalPaidKopecks)}</strong><small>Очков: {currentSummary.totalPoints} · вовремя: {currentSummary.onTimePayments}</small></div>{years.map((year) => { const annual = year < currentYear ? (state.annualSummaries[String(year)] ?? buildAnnualSummary(state, year)) : null; const keys = Object.keys(state.ledgers).filter((key) => key.startsWith(`${year}-`)).sort().reverse(); return <section className="archive-year" key={year}><h3>{year}</h3>{annual && <article className="annual-summary"><div><span className="eyebrow">Годовой итог</span><strong>{formatKopecks(annual.totalPaidKopecks)}</strong></div><div><span>Среднее за месяц</span><strong>{formatKopecks(annual.averageMonthlyKopecks)}</strong></div><div><span>Идеальных месяцев</span><strong>{annual.perfectMonths}</strong></div></article>}{keys.map((key) => { const ledger = state.ledgers[key]; const payments = Object.values(ledger.payments).filter(Boolean); const requiredReadings = new Set(getSelectedMeterIds(state, key)); return <details key={key}><summary><span><strong>{formatMonth(key)}</strong><small>{payments.length} из 7 услуг · {pointsForMonth(state, key)} очков</small></span><strong>{formatKopecks(monthTotal(state, key))}</strong></summary><div className="archive-details">{state.utilities.map((utility) => { const payment = ledger.payments[utility.id]; const reading = ledger.readings[utility.id]; return <div key={utility.id}><span>{utility.name}</span><span>{payment ? `${formatKopecks(payment.amountKopecks)} · ${payment.onTime ? "вовремя" : "с опозданием"}` : "Не оплачено"}{requiredReadings.has(utility.id as MeterUtilityId) && ` · показания ${reading ? (reading.onTime ? "вовремя" : "с опозданием") : "не внесены"}`}</span></div>; })}</div></details>; })}</section>; })}</div>;
+  const utilityCount = state.utilities.filter((utility) => utility.enabled).length;
+  return <div className="archive-content"><div className="archive-year-total"><span>За {currentYear} год</span><strong>{formatKopecks(currentSummary.totalPaidKopecks)}</strong><small>Очков: {currentSummary.totalPoints} · вовремя: {currentSummary.onTimePayments}</small></div>{years.map((year) => { const annual = year < currentYear ? (state.annualSummaries[String(year)] ?? buildAnnualSummary(state, year)) : null; const keys = Object.keys(state.ledgers).filter((key) => key.startsWith(`${year}-`)).sort().reverse(); return <section className="archive-year" key={year}><h3>{year}</h3>{annual && <article className="annual-summary"><div><span className="eyebrow">Годовой итог</span><strong>{formatKopecks(annual.totalPaidKopecks)}</strong></div><div><span>Среднее за месяц</span><strong>{formatKopecks(annual.averageMonthlyKopecks)}</strong></div><div><span>Идеальных месяцев</span><strong>{annual.perfectMonths}</strong></div></article>}{keys.map((key) => { const ledger = state.ledgers[key]; const payments = Object.values(ledger.payments).filter(Boolean); const requiredReadings = new Set(getSelectedMeterIds(state, key)); return <details key={key}><summary><span><strong>{formatMonth(key)}</strong><small>{payments.length} из {utilityCount} услуг · {pointsForMonth(state, key)} очков</small></span><strong>{formatKopecks(monthTotal(state, key))}</strong></summary><div className="archive-details">{state.utilities.map((utility) => { const payment = ledger.payments[utility.id]; const reading = ledger.readings[utility.id]; return <div key={utility.id}><span>{utility.name}</span><span>{payment ? `${formatKopecks(payment.amountKopecks)} · ${payment.onTime ? "вовремя" : "с опозданием"}` : "Не оплачено"}{requiredReadings.has(utility.id as MeterUtilityId) && ` · показания ${reading ? (reading.onTime ? "вовремя" : "с опозданием") : "не внесены"}`}</span></div>; })}</div></details>; })}</section>; })}</div>;
 }

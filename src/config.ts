@@ -7,6 +7,7 @@ export const UTILITIES: UtilityTemplate[] = [
   { id: "capital-repair", name: "Капитальный ремонт", icon: "wrench", tone: "lilac", requiresMeterReading: false, enabled: true },
   { id: "housing-services", name: "Услуги ЖКХ", icon: "building", tone: "violet", requiresMeterReading: false, enabled: true },
   { id: "electricity", name: "Электричество", icon: "zap", tone: "gold", requiresMeterReading: true, enabled: true },
+  { id: "internet", name: "Интернет", icon: "wifi", tone: "cool", requiresMeterReading: false, enabled: true },
   { id: "waste", name: "Твёрдые коммунальные отходы (ТКО)", shortName: "ТКО", icon: "recycle", tone: "mint", requiresMeterReading: false, enabled: true },
 ];
 
