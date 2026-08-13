@@ -28,9 +28,9 @@ export const formatDate = (timestamp: number) => new Intl.DateTimeFormat("ru-RU"
 export const formatKopecks = (value: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2 }).format(value / 100);
 export function parseRublesToKopecks(input: string) {
   const normalized = input.trim().replace(/\s/g, "").replace(",", ".");
-  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) return 0;
+  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) return null;
   const value = Math.round(Number(normalized) * 100);
-  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 export const METER_UTILITY_IDS: MeterUtilityId[] = ["hot-water", "cold-water", "gas", "electricity"];

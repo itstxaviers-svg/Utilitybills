@@ -6,6 +6,8 @@ describe("деньги", () => {
     expect(parseRublesToKopecks("1284,50")).toBe(128450);
     expect(parseRublesToKopecks("1284.5")).toBe(128450);
     expect(parseRublesToKopecks("0")).toBe(0);
+    expect(parseRublesToKopecks("0,00")).toBe(0);
+    expect(parseRublesToKopecks("-1")).toBeNull();
   });
 });
 

@@ -285,7 +285,7 @@ export default function App() {
   const savePayment = () => {
     if (!paymentTarget) return;
     const amountKopecks = parseRublesToKopecks(amountInput);
-    if (!amountKopecks) return setAmountError("Введите сумму больше 0 ₽.");
+    if (amountKopecks === null) return setAmountError("Введите корректную сумму от 0 ₽.");
     const actionNow = new Date();
     const actionMonthKey = getLocalMonthKey(actionNow);
     update((draft) => {
