@@ -1,0 +1,10 @@
+{
+  "name": "Focus Tool — коммунальные платежи",
+  "short_name": "Focus Tool",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#fbf8fc",
+  "theme_color": "#8f79d8",
+  "lang": "ru",
+  "description": "Локальный планировщик коммунальных платежей"
+}
