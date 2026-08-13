@@ -103,6 +103,7 @@ export type AppState = {
   version: 2;
   profile: {
     name: string;
+    email: string;
     avatarMode: "preset" | "uploaded";
     selectedAvatarId: CharacterId;
     uploadedAvatarDataUrl: string | null;

@@ -53,7 +53,7 @@ export function createDefaultState(now = new Date()): AppState {
   const monthKey = getLocalMonthKey(now);
   return {
     version: 2,
-    profile: { name: "", avatarMode: "preset", selectedAvatarId: "sailor-moon", uploadedAvatarDataUrl: null, notificationPreference: "unknown", soundEnabled: false, reducedEffects: false },
+    profile: { name: "", email: "", avatarMode: "preset", selectedAvatarId: "sailor-moon", uploadedAvatarDataUrl: null, notificationPreference: "unknown", soundEnabled: false, reducedEffects: false },
     utilities: UTILITIES.map((utility) => ({ ...utility })),
     meterSettings: {
       configured: false,
