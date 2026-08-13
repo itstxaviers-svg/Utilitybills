@@ -7,6 +7,8 @@ export type UtilityId =
   | "electricity"
   | "waste";
 
+export type MeterUtilityId = "hot-water" | "cold-water" | "gas" | "electricity";
+
 export type CharacterId =
   | "sailor-moon"
   | "sailor-mercury"
@@ -50,6 +52,7 @@ export type ReadingRecord = {
 
 export type MonthLedger = {
   monthKey: string;
+  requiredReadingIds: MeterUtilityId[];
   payments: Partial<Record<UtilityId, PaymentRecord>>;
   readings: Partial<Record<UtilityId, ReadingRecord>>;
   celebrationShown: boolean;
@@ -107,6 +110,10 @@ export type AppState = {
     reducedEffects: boolean;
   };
   utilities: UtilityTemplate[];
+  meterSettings: {
+    configured: boolean;
+    selected: Record<MeterUtilityId, boolean>;
+  };
   ledgers: Record<string, MonthLedger>;
   journals: Record<string, DailyJournal>;
   completionEvents: CompletionEvent[];

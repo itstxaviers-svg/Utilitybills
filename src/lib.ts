@@ -1,5 +1,5 @@
 import { BADGES, POINTS, UTILITIES } from "./config";
-import type { AnnualSummary, AppNotice, AppState, CharacterId, MonthLedger, UtilityId } from "./types";
+import type { AnnualSummary, AppNotice, AppState, CharacterId, MeterUtilityId, MonthLedger, UtilityId } from "./types";
 
 export const STORAGE_KEY = "focusTool.utilityPlanner.v2";
 export const V1_STORAGE_KEY = "focusTool.utilityPlanner.v1";
@@ -33,8 +33,11 @@ export function parseRublesToKopecks(input: string) {
   return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
-export const makeLedger = (monthKey: string): MonthLedger => ({
+export const METER_UTILITY_IDS: MeterUtilityId[] = ["hot-water", "cold-water", "gas", "electricity"];
+
+export const makeLedger = (monthKey: string, requiredReadingIds: MeterUtilityId[] = []): MonthLedger => ({
   monthKey,
+  requiredReadingIds: [...requiredReadingIds],
   payments: {},
   readings: {},
   celebrationShown: false,
@@ -52,6 +55,10 @@ export function createDefaultState(now = new Date()): AppState {
     version: 2,
     profile: { name: "", avatarMode: "preset", selectedAvatarId: "sailor-moon", uploadedAvatarDataUrl: null, notificationPreference: "unknown", soundEnabled: false, reducedEffects: false },
     utilities: UTILITIES.map((utility) => ({ ...utility })),
+    meterSettings: {
+      configured: false,
+      selected: { "hot-water": false, "cold-water": false, gas: false, electricity: false },
+    },
     ledgers: { [monthKey]: makeLedger(monthKey) },
     journals: {},
     completionEvents: [],
@@ -67,12 +74,17 @@ function sanitizeState(value: unknown, now = new Date()): AppState {
   if (!value || typeof value !== "object") return defaults;
   const raw = value as Partial<AppState>;
   const profile = raw.profile && typeof raw.profile === "object" ? raw.profile : defaults.profile;
+  const meterSettings = raw.meterSettings && typeof raw.meterSettings === "object" ? raw.meterSettings : defaults.meterSettings;
   const state: AppState = {
     ...defaults,
     ...raw,
     version: 2,
     profile: { ...defaults.profile, ...profile },
     utilities: Array.isArray(raw.utilities) && raw.utilities.length === 7 ? raw.utilities : defaults.utilities,
+    meterSettings: {
+      configured: Boolean(meterSettings.configured),
+      selected: { ...defaults.meterSettings.selected, ...(meterSettings.selected ?? {}) },
+    },
     ledgers: raw.ledgers && typeof raw.ledgers === "object" ? raw.ledgers : defaults.ledgers,
     journals: raw.journals && typeof raw.journals === "object" ? raw.journals : {},
     completionEvents: Array.isArray(raw.completionEvents) ? raw.completionEvents : [],
@@ -82,7 +94,13 @@ function sanitizeState(value: unknown, now = new Date()): AppState {
     ui: { ...defaults.ui, ...(raw.ui ?? {}) },
   };
   const currentMonth = getLocalMonthKey(now);
-  if (!state.ledgers[currentMonth]) state.ledgers[currentMonth] = makeLedger(currentMonth);
+  const selected = getSelectedMeterIds(state);
+  for (const [monthKey, ledger] of Object.entries(state.ledgers)) {
+    if (!Array.isArray(ledger.requiredReadingIds)) {
+      ledger.requiredReadingIds = monthKey === currentMonth ? selected : METER_UTILITY_IDS.filter((id) => Boolean(ledger.readings[id]));
+    }
+  }
+  if (!state.ledgers[currentMonth]) state.ledgers[currentMonth] = makeLedger(currentMonth, selected);
   return state;
 }
 
@@ -113,6 +131,18 @@ export function saveState(state: AppState) {
   }
 }
 
+export function resetAppState(now = new Date()) {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(V1_STORAGE_KEY);
+  return createDefaultState(now);
+}
+
+export function getSelectedMeterIds(state: AppState, monthKey?: string): MeterUtilityId[] {
+  if (monthKey && Array.isArray(state.ledgers[monthKey]?.requiredReadingIds)) return state.ledgers[monthKey].requiredReadingIds;
+  if (!state.meterSettings.configured) return [];
+  return METER_UTILITY_IDS.filter((id) => state.meterSettings.selected[id]);
+}
+
 export function monthTotal(state: AppState, monthKey: string) {
   return Object.values(state.ledgers[monthKey]?.payments ?? {}).reduce((sum, payment) => sum + (payment?.amountKopecks ?? 0), 0);
 }
@@ -121,7 +151,7 @@ export function isPerfectMonth(state: AppState, monthKey: string) {
   const ledger = state.ledgers[monthKey];
   if (!ledger) return false;
   const enabled = state.utilities.filter((utility) => utility.enabled);
-  return enabled.every((utility) => Boolean(ledger.payments[utility.id]?.onTime)) && enabled.filter((utility) => utility.requiresMeterReading).every((utility) => Boolean(ledger.readings[utility.id]?.onTime));
+  return enabled.every((utility) => Boolean(ledger.payments[utility.id]?.onTime)) && getSelectedMeterIds(state, monthKey).every((id) => Boolean(ledger.readings[id]?.onTime));
 }
 
 export function pointsForMonth(state: AppState, monthKey: string) {
@@ -159,7 +189,7 @@ export function buildAnnualSummary(state: AppState, year: number): AnnualSummary
 export function reconcileState(input: AppState, now = new Date()) {
   const state = structuredClone(input);
   const currentMonth = getLocalMonthKey(now);
-  if (!state.ledgers[currentMonth]) state.ledgers[currentMonth] = makeLedger(currentMonth);
+  if (!state.ledgers[currentMonth]) state.ledgers[currentMonth] = makeLedger(currentMonth, getSelectedMeterIds(state));
   for (const [monthKey, ledger] of Object.entries(state.ledgers)) {
     const allPaid = state.utilities.filter((utility) => utility.enabled).every((utility) => Boolean(ledger.payments[utility.id]));
     ledger.sailorBadgeEligible = allPaid;
@@ -205,10 +235,11 @@ export function nextDeadlineText(state: AppState, now = new Date()) {
   const monthKey = getLocalMonthKey(now);
   const ledger = state.ledgers[monthKey] ?? makeLedger(monthKey);
   const paymentsLeft = state.utilities.filter((utility) => utility.enabled && !ledger.payments[utility.id]).length;
-  const readingsLeft = state.utilities.filter((utility) => utility.enabled && utility.requiresMeterReading && !ledger.readings[utility.id]).length;
+  const selectedMeterIds = getSelectedMeterIds(state, monthKey);
+  const readingsLeft = selectedMeterIds.filter((id) => !ledger.readings[id]).length;
   const monthName = new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(now);
   if (paymentsLeft) return { title: "Ближайший срок", body: `Оплата услуг — до 15 ${monthName}`, foot: `Осталось ${paymentsLeft} из 7` };
-  if (readingsLeft) return { title: "Ближайший срок", body: `Показания — до 20 ${monthName}`, foot: `Осталось ${readingsLeft} из 4` };
+  if (readingsLeft) return { title: "Ближайший срок", body: `Показания — до 20 ${monthName}`, foot: `Осталось ${readingsLeft} из ${selectedMeterIds.length}` };
   return { title: "На этот месяц всё готово ✨", body: "Можно спокойно выдохнуть", foot: "Все обязательства закрыты" };
 }
 
@@ -218,7 +249,8 @@ export function evaluateReminder(state: AppState, now = new Date()): AppNotice |
   const dateKey = getLocalDateKey(now);
   const ledger = state.ledgers[monthKey] ?? makeLedger(monthKey);
   const paymentsLeft = state.utilities.filter((utility) => utility.enabled && !ledger.payments[utility.id]).length;
-  const readingsLeft = state.utilities.filter((utility) => utility.enabled && utility.requiresMeterReading && !ledger.readings[utility.id]).length;
+  const selectedMeterIds = getSelectedMeterIds(state, monthKey);
+  const readingsLeft = selectedMeterIds.filter((id) => !ledger.readings[id]).length;
   let notice: AppNotice | null = null;
   if (paymentsLeft && day >= 16) notice = { id: `${dateKey}:payment-overdue`, severity: "danger", title: "Срок оплаты прошёл", body: `Не оплачено услуг: ${paymentsLeft}.` };
   else if (paymentsLeft && day === 15) notice = { id: `${dateKey}:payment-due`, severity: "warning", title: "Сегодня последний день оплаты", body: `Осталось оплатить ${paymentsLeft} услуг.` };

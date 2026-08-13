@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultState, getDeadline, getLocalDateKey, getLocalMonthKey, isPerfectMonth, lifetimePoints, monthTotal, parseRublesToKopecks, pointsForMonth } from "./lib";
+import { createDefaultState, evaluateReminder, getDeadline, getLocalDateKey, getLocalMonthKey, isPerfectMonth, lifetimePoints, monthTotal, parseRublesToKopecks, pointsForMonth } from "./lib";
 
 describe("деньги", () => {
   it("понимает запятую и точку", () => {
@@ -29,15 +29,29 @@ describe("производные итоги", () => {
     expect(lifetimePoints(state)).toBe(50);
   });
 
-  it("требует все семь платежей и четыре показания вовремя", () => {
+  it("требует все семь платежей и только выбранные показания вовремя", () => {
     const state = createDefaultState(new Date(2026, 7, 13));
     const key = "2026-08";
+    state.meterSettings = { configured: true, selected: { "hot-water": false, "cold-water": true, gas: false, electricity: true } };
+    state.ledgers[key].requiredReadingIds = ["cold-water", "electricity"];
     for (const utility of state.utilities) {
       state.ledgers[key].payments[utility.id] = { utilityId: utility.id, amountKopecks: 100, paidAt: 1, updatedAt: 1, deadlineAt: 2, onTime: true };
-      if (utility.requiresMeterReading) state.ledgers[key].readings[utility.id] = { utilityId: utility.id, submittedAt: 1, updatedAt: 1, deadlineAt: 2, onTime: true };
+      if (state.ledgers[key].requiredReadingIds.includes(utility.id as "cold-water" | "electricity")) state.ledgers[key].readings[utility.id] = { utilityId: utility.id, submittedAt: 1, updatedAt: 1, deadlineAt: 2, onTime: true };
     }
     expect(isPerfectMonth(state, key)).toBe(true);
-    state.ledgers[key].readings.gas!.onTime = false;
+    state.ledgers[key].readings.gas = { utilityId: "gas", submittedAt: 1, updatedAt: 1, deadlineAt: 2, onTime: false };
+    expect(isPerfectMonth(state, key)).toBe(true);
+    state.ledgers[key].readings.electricity!.onTime = false;
     expect(isPerfectMonth(state, key)).toBe(false);
+  });
+
+  it("напоминает только о выбранных незавершённых показаниях", () => {
+    const state = createDefaultState(new Date(2026, 7, 20));
+    const key = "2026-08";
+    state.meterSettings = { configured: true, selected: { "hot-water": false, "cold-water": true, gas: false, electricity: true } };
+    state.ledgers[key].requiredReadingIds = ["cold-water", "electricity"];
+    for (const utility of state.utilities) state.ledgers[key].payments[utility.id] = { utilityId: utility.id, amountKopecks: 100, paidAt: 1, updatedAt: 1, deadlineAt: 2, onTime: true };
+    state.ledgers[key].readings["cold-water"] = { utilityId: "cold-water", submittedAt: 1, updatedAt: 1, deadlineAt: 2, onTime: true };
+    expect(evaluateReminder(state, new Date(2026, 7, 20, 12))?.body).toContain("Осталось внести 1");
   });
 });

@@ -11,12 +11,12 @@ import {
   Droplets,
   Flame,
   Gem,
-  ImagePlus,
   Lock,
   MoonStar,
   Pencil,
   Recycle,
   RotateCcw,
+  Settings2,
   Sparkles,
   Star,
   Trash2,
@@ -26,11 +26,9 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { AVATARS, BADGES, ENCOURAGEMENTS, MOODS, MOOD_SYMBOLS } from "./config";
 import {
-  STORAGE_KEY,
-  V1_STORAGE_KEY,
   badgeById,
   buildAnnualSummary,
   claimReward,
@@ -44,7 +42,7 @@ import {
   getLocalDateKey,
   getLocalMonthKey,
   getRank,
-  isMonthFinished,
+  getSelectedMeterIds,
   lifetimePoints,
   loadState,
   makeJournal,
@@ -57,11 +55,14 @@ import {
   pendingRewardMonth,
   pointsForMonth,
   reconcileState,
+  resetAppState,
   saveState,
 } from "./lib";
-import type { AppNotice, AppState, CharacterId, UtilityId, UtilityTemplate } from "./types";
+import type { AppNotice, AppState, DailyJournal, MeterUtilityId, UtilityId, UtilityTemplate } from "./types";
 
 type Panel = "profile" | "archive" | "collection" | null;
+type MobileView = "today" | "payments" | "readings" | "calendar";
+type StateUpdater = (recipe: (draft: AppState) => void) => void;
 
 const iconMap = {
   droplets: Droplets,
@@ -79,10 +80,12 @@ function UtilityIcon({ utility, size = 20 }: { utility: UtilityTemplate; size?: 
 
 function Modal({ title, children, onClose, className = "" }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
       if (event.key === "Tab" && ref.current) {
         const nodes = [...ref.current.querySelectorAll<HTMLElement>('button:not([disabled]), input, textarea, [tabindex]:not([tabindex="-1"])')];
         if (!nodes.length) return;
@@ -95,7 +98,7 @@ function Modal({ title, children, onClose, className = "" }: { title: string; ch
     document.addEventListener("keydown", onKey);
     window.setTimeout(() => ref.current?.querySelector<HTMLElement>("[autofocus], button, input, textarea")?.focus(), 0);
     return () => { document.removeEventListener("keydown", onKey); previous?.focus(); };
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={ref} className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={title}>
@@ -122,6 +125,41 @@ function useClock() {
     return () => { window.clearInterval(id); window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); };
   }, []);
   return now;
+}
+
+function useMinuteClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const id = window.setInterval(tick, 60_000);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => { window.clearInterval(id); window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); };
+  }, []);
+  return now;
+}
+
+function TopBarClock() {
+  const now = useClock();
+  const date = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(now);
+  const compactDate = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(now);
+  const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
+  return <><div className="top-date"><span>{date}</span><strong>{time}</strong></div><div className="mobile-time"><span>{compactDate}</span><strong>{time}</strong></div></>;
+}
+
+function LiveClockCard({ deadline }: { deadline: ReturnType<typeof nextDeadlineText> }) {
+  const now = useClock();
+  const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
+  const compactDate = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(now);
+  return <article className="card live-clock-card">
+    <div className="clock-title"><span>✦</span><div><span className="eyebrow">Сейчас</span><h2>Focus Tool</h2></div><span>✦</span></div>
+    <div className="clock-orbit" aria-label={`Текущее время ${time}`}>
+      <span className="orbit-star orbit-star-one">✦</span><span className="orbit-star orbit-star-two">·</span><span className="orbit-moon">☾</span>
+      <div className="clock-inner"><small>{new Intl.DateTimeFormat("ru-RU", { weekday: "long" }).format(now)}</small><strong>{time}</strong><span>{compactDate}</span></div>
+      <Gem className="clock-gem" />
+    </div>
+    <div className="clock-note"><MoonStar /><span><strong>{deadline.body}</strong><small>{deadline.foot}</small></span></div>
+  </article>;
 }
 
 function AvatarDisplay({ state, size = "normal" }: { state: AppState; size?: "normal" | "large" }) {
@@ -154,7 +192,7 @@ function resizePhoto(file: File): Promise<string> {
 }
 
 export default function App() {
-  const now = useClock();
+  const now = useMinuteClock();
   const [state, setState] = useState<AppState>(() => loadState());
   const [panel, setPanel] = useState<Panel>(null);
   const [paymentTarget, setPaymentTarget] = useState<UtilityId | null>(null);
@@ -164,9 +202,11 @@ export default function App() {
   const [calendarMonth, setCalendarMonth] = useState(() => state.ui.selectedCalendarMonth ?? getLocalMonthKey());
   const [notice, setNotice] = useState<AppNotice | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetStage, setResetStage] = useState<0 | 1 | 2>(0);
+  const [finalResetArmed, setFinalResetArmed] = useState(false);
+  const [meterSettingsOpen, setMeterSettingsOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<MobileView>("today");
   const [photoError, setPhotoError] = useState("");
-  const [savedThought, setSavedThought] = useState(false);
   const [rewardMonth, setRewardMonth] = useState<string | null>(() => pendingRewardMonth(state));
   const [perfectMonth, setPerfectMonth] = useState<string | null>(() => pendingCelebrationMonth(state));
   const [reminderPulse, setReminderPulse] = useState(0);
@@ -178,7 +218,8 @@ export default function App() {
   const totalPoints = lifetimePoints(state);
   const currentMonthPoints = pointsForMonth(state, monthKey);
   const paidCount = state.utilities.filter((utility) => utility.enabled && ledger.payments[utility.id]).length;
-  const readingUtilities = state.utilities.filter((utility) => utility.enabled && utility.requiresMeterReading);
+  const selectedMeterIds = getSelectedMeterIds(state, monthKey);
+  const readingUtilities = selectedMeterIds.map((id) => state.utilities.find((utility) => utility.id === id)!).filter(Boolean);
   const readingsCount = readingUtilities.filter((utility) => ledger.readings[utility.id]).length;
   const monthPaidTotal = monthTotal(state, monthKey);
   const activeBadge = badgeById(state.badgeCollection.activeBadgeId);
@@ -193,7 +234,7 @@ export default function App() {
   useEffect(() => {
     const id = window.setTimeout(() => {
       if (!saveState(state)) setToast("Не удалось сохранить данные: хранилище браузера переполнено.");
-    }, 80);
+    }, 300);
     return () => window.clearTimeout(id);
   }, [state]);
 
@@ -212,15 +253,23 @@ export default function App() {
 
   useEffect(() => { if (!rewardMonth) setRewardMonth(pendingRewardMonth(state)); if (!perfectMonth) setPerfectMonth(pendingCelebrationMonth(state)); }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(null), 4800); return () => window.clearTimeout(id); }, [toast]);
+  useEffect(() => {
+    if (resetStage !== 2) { setFinalResetArmed(false); return; }
+    const id = window.setTimeout(() => setFinalResetArmed(true), 800);
+    return () => window.clearTimeout(id);
+  }, [resetStage]);
 
-  const update = (recipe: (draft: AppState) => void) => setState((current) => { const draft = structuredClone(current); recipe(draft); return reconcileState(draft, now); });
+  const update = useCallback<StateUpdater>((recipe) => setState((current) => { const draft = structuredClone(current); recipe(draft); return reconcileState(draft, new Date()); }), []);
 
   const addEventAndMilestone = (draft: AppState, eventId: string, utilityId: UtilityId, type: "payment" | "reading") => {
     draft.completionEvents = draft.completionEvents.filter((event) => event.id !== eventId);
-    draft.completionEvents.push({ id: eventId, utilityId, type, happenedAt: now.getTime(), dateKey, monthKey });
-    const dayJournal = draft.journals[dateKey] ?? makeJournal(dateKey);
-    draft.journals[dateKey] = dayJournal;
-    const count = dailyCompletionCount(draft, dateKey);
+    const happenedAt = Date.now();
+    const happenedDateKey = getLocalDateKey(new Date(happenedAt));
+    const happenedMonthKey = getLocalMonthKey(new Date(happenedAt));
+    draft.completionEvents.push({ id: eventId, utilityId, type, happenedAt, dateKey: happenedDateKey, monthKey: happenedMonthKey });
+    const dayJournal = draft.journals[happenedDateKey] ?? makeJournal(happenedDateKey);
+    draft.journals[happenedDateKey] = dayJournal;
+    const count = dailyCompletionCount(draft, happenedDateKey);
     if (count >= 3 && !dayJournal.threeTaskMilestoneShown) {
       const candidates = ENCOURAGEMENTS.map((_, index) => index).filter((index) => index !== draft.ui.lastEncouragementIndex);
       const index = candidates[Math.floor(Math.random() * candidates.length)];
@@ -242,12 +291,14 @@ export default function App() {
     if (!paymentTarget) return;
     const amountKopecks = parseRublesToKopecks(amountInput);
     if (!amountKopecks) return setAmountError("Введите сумму больше 0 ₽.");
+    const actionNow = new Date();
+    const actionMonthKey = getLocalMonthKey(actionNow);
     update((draft) => {
-      const targetLedger = draft.ledgers[monthKey] ?? (draft.ledgers[monthKey] = makeLedger(monthKey));
+      const targetLedger = draft.ledgers[actionMonthKey] ?? (draft.ledgers[actionMonthKey] = makeLedger(actionMonthKey, getSelectedMeterIds(draft)));
       const existing = targetLedger.payments[paymentTarget];
-      const paidAt = existing?.paidAt ?? now.getTime();
-      targetLedger.payments[paymentTarget] = { utilityId: paymentTarget, amountKopecks, paidAt, deadlineAt: getDeadline(monthKey, 15), onTime: paidAt <= getDeadline(monthKey, 15), updatedAt: now.getTime() };
-      if (!existing) addEventAndMilestone(draft, `payment:${monthKey}:${paymentTarget}`, paymentTarget, "payment");
+      const paidAt = existing?.paidAt ?? actionNow.getTime();
+      targetLedger.payments[paymentTarget] = { utilityId: paymentTarget, amountKopecks, paidAt, deadlineAt: getDeadline(actionMonthKey, 15), onTime: paidAt <= getDeadline(actionMonthKey, 15), updatedAt: actionNow.getTime() };
+      if (!existing) addEventAndMilestone(draft, `payment:${actionMonthKey}:${paymentTarget}`, paymentTarget, "payment");
     });
     setPaymentTarget(null);
     setToast("Оплата сохранена ✨");
@@ -266,20 +317,21 @@ export default function App() {
   const toggleReading = (utilityId: UtilityId) => {
     const existing = ledger.readings[utilityId];
     if (existing && !window.confirm("Отменить отметку о передаче показаний?")) return;
+    const actionNow = new Date();
+    const actionMonthKey = getLocalMonthKey(actionNow);
     update((draft) => {
-      const targetLedger = draft.ledgers[monthKey] ?? (draft.ledgers[monthKey] = makeLedger(monthKey));
+      const targetLedger = draft.ledgers[actionMonthKey] ?? (draft.ledgers[actionMonthKey] = makeLedger(actionMonthKey, getSelectedMeterIds(draft)));
       if (existing) {
         delete targetLedger.readings[utilityId];
-        draft.completionEvents = draft.completionEvents.filter((event) => event.id !== `reading:${monthKey}:${utilityId}`);
+        draft.completionEvents = draft.completionEvents.filter((event) => event.id !== `reading:${actionMonthKey}:${utilityId}`);
       } else {
-        targetLedger.readings[utilityId] = { utilityId, submittedAt: now.getTime(), deadlineAt: getDeadline(monthKey, 20), onTime: now.getTime() <= getDeadline(monthKey, 20), updatedAt: now.getTime() };
-        addEventAndMilestone(draft, `reading:${monthKey}:${utilityId}`, utilityId, "reading");
+        targetLedger.readings[utilityId] = { utilityId, submittedAt: actionNow.getTime(), deadlineAt: getDeadline(actionMonthKey, 20), onTime: actionNow.getTime() <= getDeadline(actionMonthKey, 20), updatedAt: actionNow.getTime() };
+        addEventAndMilestone(draft, `reading:${actionMonthKey}:${utilityId}`, utilityId, "reading");
       }
     });
     setToast(existing ? "Отметка отменена" : "Показания отмечены ✨");
   };
 
-  const chooseAvatar = (id: CharacterId) => update((draft) => { draft.profile.selectedAvatarId = id; draft.profile.avatarMode = "preset"; });
   const uploadPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -309,17 +361,14 @@ export default function App() {
     const payment = event.type === "payment" ? eventLedger?.payments[event.utilityId] : null;
     return { ...event, utility, payment };
   });
-  const dateFormatter = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const timeFormatter = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  const compactDateFormatter = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" });
+  const totalMonthlyActions = 7 + readingUtilities.length;
 
   return (
     <div className={`app ${state.profile.reducedEffects ? "effects-reduced" : ""}`}>
       <div className="ambient ambient-one" /><div className="ambient ambient-two" /><div className="star-field" aria-hidden="true">✦　·　✧　　✦　·　　✧</div>
       <header className="topbar">
         <div className="brand"><span className="brand-moon"><MoonStar /></span><div><strong>Focus Tool</strong><span>домашняя орбита порядка</span></div></div>
-        <div className="top-date"><span>{dateFormatter.format(now)}</span><strong>{timeFormatter.format(now)}</strong></div>
-        <div className="mobile-time"><span>{compactDateFormatter.format(now)}</span><strong>{timeFormatter.format(now)}</strong></div>
+        <TopBarClock />
         <div className="top-actions">
           <button className="points-chip" onClick={() => setPanel("archive")} aria-label={`Очки: ${totalPoints}`}><Gem size={18} /><strong>{totalPoints}</strong><span>{getRank(totalPoints)}</span></button>
           <button className="icon-button notification-button" onClick={enableNotifications} aria-label="Настроить уведомления">{state.profile.notificationPreference === "enabled" ? <BellRing /> : <Bell />}{notice && <i />}</button>
@@ -328,7 +377,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="dashboard">
+      <main className="dashboard" data-mobile-view={mobileView}>
         <section className="left-column">
           <article className="card deadline-card mobile-first">
             <div className="deadline-orb"><MoonStar /></div><div><span className="eyebrow">Сегодня</span><h2>{deadline.title}</h2><p>{deadline.body}</p><small>{deadline.foot}</small></div>
@@ -354,33 +403,25 @@ export default function App() {
           </article>
 
           <article className="card readings-card">
-            <div className="section-heading compact"><div><span className="eyebrow">До 20 числа</span><h2>Показания</h2><p>Отметьте факт передачи показаний</p></div><div className="mini-progress"><strong>{readingsCount}</strong> / {readingUtilities.length}</div></div>
-            <div className="readings-grid">
+            <div className="section-heading compact"><div><span className="eyebrow">До 20 числа</span><h2>Показания</h2><p>{state.meterSettings.configured ? "Отметьте факт передачи показаний" : "Сначала выберите свои счётчики"}</p></div><div className="readings-tools"><button className="settings-button" onClick={() => setMeterSettingsOpen(true)}><Settings2 /> <span>Настроить</span></button>{state.meterSettings.configured && <div className="mini-progress"><strong>{readingsCount}</strong> / {readingUtilities.length}</div>}</div></div>
+            {!state.meterSettings.configured ? <div className="meter-empty"><Settings2 /><div><strong>Какие показания вы передаёте?</strong><p>Настройка сохранится для следующих месяцев.</p></div><button className="primary" onClick={() => setMeterSettingsOpen(true)}>Выбрать счётчики</button></div> : readingUtilities.length === 0 ? <div className="meter-empty compact"><Check /><div><strong>Показания не выбраны</strong><p>Для идеального месяца достаточно платежей вовремя.</p></div></div> : <div className="readings-grid">
               {readingUtilities.map((utility) => {
                 const reading = ledger.readings[utility.id];
                 const overdue = !reading && now.getTime() > getDeadline(monthKey, 20);
                 return <button key={utility.id} className={`reading-item ${reading ? "is-done" : ""}`} onClick={() => toggleReading(utility.id)}><UtilityIcon utility={utility} size={18} /><span><strong>{utility.name}</strong><small>{reading ? (reading.onTime ? "Внесены вовремя" : "Внесены с опозданием") : overdue ? "Просрочено" : "Не внесены"}</small></span><i>{reading ? <Check /> : "+"}</i></button>;
               })}
-            </div>
+            </div>}
           </article>
         </section>
 
         <section className="center-column">
-          <article className="card live-clock-card">
-            <div className="clock-title"><span>✦</span><div><span className="eyebrow">Сейчас</span><h2>Focus Tool</h2></div><span>✦</span></div>
-            <div className="clock-orbit" aria-label={`Текущее время ${timeFormatter.format(now)}`}>
-              <span className="orbit-star orbit-star-one">✦</span><span className="orbit-star orbit-star-two">·</span><span className="orbit-moon">☾</span>
-              <div className="clock-inner"><small>{new Intl.DateTimeFormat("ru-RU", { weekday: "long" }).format(now)}</small><strong>{timeFormatter.format(now)}</strong><span>{compactDateFormatter.format(now)}</span></div>
-              <Gem className="clock-gem" />
-            </div>
-            <div className="clock-note"><MoonStar /><span><strong>{deadline.body}</strong><small>{deadline.foot}</small></span></div>
-          </article>
+          <LiveClockCard deadline={deadline} />
 
           <article className="card month-summary-card">
             <div className="section-heading compact"><div><span className="eyebrow">Итоги месяца</span><h2>{formatMonth(monthKey)}</h2></div><Star className="gold-star" /></div>
             <div className="summary-total"><span>Оплачено</span><strong>{formatKopecks(monthPaidTotal)}</strong></div>
             <div className="summary-stats"><div><WalletCards /><span><strong>{paidCount} / 7</strong> услуг</span></div><div><CalendarDays /><span><strong>{readingsCount} / {readingUtilities.length}</strong> показаний</span></div><div><Gem /><span><strong>{currentMonthPoints}</strong> очков</span></div></div>
-            <div className="reward-progress"><div><span>Лунный путь месяца</span><strong>{Math.round(((paidCount + readingsCount) / 11) * 100)}%</strong></div><span><i style={{ width: `${((paidCount + readingsCount) / 11) * 100}%` }} /></span></div>
+            <div className="reward-progress"><div><span>Лунный путь месяца</span><strong>{Math.round(((paidCount + readingsCount) / totalMonthlyActions) * 100)}%</strong></div><span><i style={{ width: `${((paidCount + readingsCount) / totalMonthlyActions) * 100}%` }} /></span></div>
             {januaryAnnualSummary && <div className="january-summary"><span>Итоги {now.getFullYear() - 1} года</span><strong>{formatKopecks(januaryAnnualSummary.totalPaidKopecks)}</strong><small>{januaryAnnualSummary.perfectMonths} идеальных месяцев · {januaryAnnualSummary.totalPoints} очков</small></div>}
             <button className="secondary wide" onClick={() => setPanel("archive")}><Archive /> Открыть архив</button>
           </article>
@@ -411,6 +452,12 @@ export default function App() {
           </article>
         </aside>
       </main>
+      <nav className="mobile-nav" aria-label="Разделы приложения">
+        <button className={mobileView === "today" ? "active" : ""} onClick={() => setMobileView("today")}><MoonStar /><span>Сегодня</span></button>
+        <button className={mobileView === "payments" ? "active" : ""} onClick={() => setMobileView("payments")}><WalletCards /><span>Платежи</span></button>
+        <button className={mobileView === "readings" ? "active" : ""} onClick={() => setMobileView("readings")}><Droplets /><span>Показания</span></button>
+        <button className={mobileView === "calendar" ? "active" : ""} onClick={() => setMobileView("calendar")}><CalendarDays /><span>Календарь</span></button>
+      </nav>
 
       {paymentTarget && (() => {
         const utility = state.utilities.find((item) => item.id === paymentTarget)!;
@@ -418,21 +465,16 @@ export default function App() {
         return <Modal title="Сколько оплатили?" onClose={() => setPaymentTarget(null)} className="amount-modal"><div className="payment-dialog-service"><UtilityIcon utility={utility} size={24} /><div><strong>{utility.name}</strong><span>Срок оплаты — до 15 числа</span></div></div><label className="field"><span>Сумма платежа</span><div className="currency-input"><input autoFocus inputMode="decimal" value={amountInput} onChange={(event) => { setAmountInput(event.target.value); setAmountError(""); }} onKeyDown={(event) => event.key === "Enter" && savePayment()} placeholder="0,00" aria-describedby="amount-error" /><span>₽</span></div>{amountError && <small className="field-error" id="amount-error">{amountError}</small>}</label><div className="modal-actions">{existing && <button className="danger-subtle" onClick={() => window.confirm("Отменить эту оплату? Сумма и отметка будут удалены.") && removePayment()}><Trash2 /> Отменить оплату</button>}<button className="primary" onClick={savePayment}><Check /> Сохранить оплату</button></div></Modal>;
       })()}
 
-      {panel === "profile" && <Modal title="Профиль" onClose={() => setPanel(null)} className="large-modal profile-modal">
-        <div className="profile-hero"><div className="avatar-stack"><AvatarDisplay state={state} size="large" />{activeBadge && <ArtImage className="profile-active-badge" src={activeBadge.src} alt={activeBadge.name} />}</div><div><span className="eyebrow">Ваша домашняя орбита</span><h3>{state.profile.name || "Добавьте своё имя"}</h3><p>Данные хранятся только в этом браузере на этом устройстве.</p></div></div>
-        <label className="field"><span>Имя</span><input value={state.profile.name} maxLength={60} onChange={(event) => update((draft) => { draft.profile.name = event.target.value; })} placeholder="Как к вам обращаться?" /></label>
-        <section className="profile-section"><div className="subheading"><div><h3>Аватар</h3><p>Все 12 образов доступны сразу</p></div><label className="upload-button"><Upload /> {state.profile.avatarMode === "uploaded" ? "Изменить фото" : "Загрузить своё фото"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadPhoto} /></label></div>{photoError && <p className="field-error">{photoError}</p>}<div className="avatar-grid">{AVATARS.map((avatar) => <button key={avatar.id} onClick={() => chooseAvatar(avatar.id)} className={state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id ? "selected" : ""}><ArtImage src={avatar.src} alt={avatar.name} /><span>{avatar.name}</span>{state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id && <i><Check /></i>}</button>)}</div>{state.profile.avatarMode === "uploaded" && <button className="text-button danger-text" onClick={() => update((draft) => { draft.profile.uploadedAvatarDataUrl = null; draft.profile.avatarMode = "preset"; })}><Trash2 /> Удалить фото</button>}</section>
-        <section className="profile-section"><h3>Как я сегодня?</h3><div className="mood-grid">{MOODS.map((mood, index) => <button key={mood} className={journal.mood === mood ? "selected" : ""} onClick={() => update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.mood = mood; draft.journals[dateKey] = item; })}><strong>{MOOD_SYMBOLS[index]}</strong><span>{mood}</span></button>)}</div></section>
-        <label className="field thought-field"><span>О чём я сегодня думаю</span><textarea maxLength={280} value={journal.thought} onChange={(event) => { const value = event.target.value; setSavedThought(false); update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.thought = value; draft.journals[dateKey] = item; }); window.setTimeout(() => setSavedThought(true), 450); }} placeholder="Например, о спокойном вечере…" /><small>{savedThought ? "Сохранено" : `${journal.thought.length} / 280`}</small></label>
-        <section className="settings-list"><button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={() => setPanel("collection")}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
-        <div className="profile-footer"><p>Системные уведомления зависят от браузера. Для гарантированных напоминаний при полностью закрытом приложении в будущем понадобятся Web Push и сервер расписаний.</p><button className="danger-subtle" onClick={() => setResetConfirm(true)}><RotateCcw /> Сбросить демо</button></div>
-      </Modal>}
+      {panel === "profile" && <ProfilePanel state={state} dateKey={dateKey} journal={journal} activeBadge={activeBadge} update={update} photoError={photoError} uploadPhoto={uploadPhoto} enableNotifications={enableNotifications} onClose={() => setPanel(null)} onOpenCollection={() => setPanel("collection")} onReset={() => { setPanel(null); setResetStage(1); }} />}
+
+      {meterSettingsOpen && <MeterSettingsModal state={state} monthKey={monthKey} update={update} onClose={() => setMeterSettingsOpen(false)} onSaved={() => { setMeterSettingsOpen(false); setToast("Настройки показаний сохранены"); }} />}
 
       {panel === "collection" && <Modal title="Коллекция наград" onClose={() => setPanel(null)} className="large-modal collection-modal"><div className="collection-top"><div><span>Собрано</span><strong>{state.badgeCollection.unlocked.length} / 12</strong></div><p>{state.badgeCollection.unlocked.length === 12 ? "Полная коллекция ✨" : "Закрывайте все семь платежей месяца, чтобы открывать новые значки."}</p></div><div className="constellation-progress"><i style={{ width: `${(state.badgeCollection.unlocked.length / 12) * 100}%` }} /></div><div className="badge-grid">{BADGES.map((badge) => { const unlock = state.badgeCollection.unlocked.find((item) => item.badgeId === badge.id); const active = state.badgeCollection.activeBadgeId === badge.id; return <button key={badge.id} disabled={!unlock} className={`${unlock ? "unlocked" : "locked"} ${active ? "active" : ""}`} onClick={() => unlock && update((draft) => { draft.badgeCollection.activeBadgeId = badge.id; })}>{unlock ? <ArtImage src={badge.src} alt={badge.name} /> : <span className="locked-art"><Lock /></span>}<strong>{badge.name}</strong><small>{unlock ? `${formatMonth(unlock.earnedForMonthKey)}${active ? " · Активная" : ""}` : "Пока закрыта"}</small></button>; })}</div></Modal>}
 
       {panel === "archive" && <Modal title="Архив" onClose={() => setPanel(null)} className="large-modal archive-modal"><ArchiveContent state={state} currentYear={now.getFullYear()} /></Modal>}
 
-      {resetConfirm && <Modal title="Сбросить демо?" onClose={() => setResetConfirm(false)} className="confirm-modal"><p>Все сохранённые оплаты, показания, профиль, очки и архив на этом устройстве будут удалены.</p><div className="modal-actions"><button className="secondary" onClick={() => setResetConfirm(false)}>Отмена</button><button className="danger-solid" onClick={() => { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(V1_STORAGE_KEY); const fresh = loadState(); setState(fresh); setPanel(null); setResetConfirm(false); setToast("Демо-данные сброшены"); }}>Да, сбросить</button></div></Modal>}
+      {resetStage === 1 && <Modal title="Сбросить все данные?" onClose={() => setResetStage(0)} className="confirm-modal"><p>Будут удалены все сохранённые на этом устройстве данные: платежи, суммы, показания, профиль, настроение, заметки, очки, награды, архив и настройки счётчиков.</p><div className="modal-actions"><button className="secondary" onClick={() => setResetStage(0)}>Отмена</button><button className="danger-subtle" onClick={() => setResetStage(2)}><RotateCcw /> Продолжить</button></div></Modal>}
+      {resetStage === 2 && <Modal title="Вы точно хотите всё удалить?" onClose={() => setResetStage(0)} className="confirm-modal final-reset-modal"><p>После сброса восстановить данные будет невозможно.</p><p>Если вы нажали кнопку случайно — выберите «Отмена».</p><div className="modal-actions final-reset-actions"><button className="danger-solid" disabled={!finalResetArmed} onClick={() => { if (!finalResetArmed) return; const fresh = resetAppState(new Date()); setState(fresh); setPanel(null); setMeterSettingsOpen(false); setPaymentTarget(null); setRewardMonth(null); setPerfectMonth(null); setResetStage(0); setMobileView("today"); setToast("Данные сброшены"); }}><Trash2 /> Да, удалить все данные</button><button className="secondary" autoFocus onClick={() => setResetStage(0)}>Отмена</button></div></Modal>}
 
       {rewardMonth && <Modal title="Новая награда!" onClose={() => setRewardMonth(null)} className="reward-modal"><div className="reward-reveal"><div className="reward-mystery"><Gem /></div><h3>Все платежи за {formatMonth(rewardMonth)} закрыты</h3><p>В лунной коллекции появился новый знак.</p></div><div className="modal-actions"><button className="primary" onClick={() => { const next = claimReward(state, rewardMonth); const newBadge = next.badgeCollection.unlocked.find((item) => item.earnedForMonthKey === rewardMonth); setState(next); setRewardMonth(null); setPanel("collection"); setToast(newBadge ? `Открыта награда «${badgeById(newBadge.badgeId)?.name}» ✨` : "Месячная награда добавлена"); }}><Sparkles /> Добавить в коллекцию</button></div></Modal>}
 
@@ -444,8 +486,76 @@ export default function App() {
   );
 }
 
+function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError, uploadPhoto, enableNotifications, onClose, onOpenCollection, onReset }: {
+  state: AppState;
+  dateKey: string;
+  journal: DailyJournal;
+  activeBadge: ReturnType<typeof badgeById>;
+  update: StateUpdater;
+  photoError: string;
+  uploadPhoto: (event: ChangeEvent<HTMLInputElement>) => void;
+  enableNotifications: () => void;
+  onClose: () => void;
+  onOpenCollection: () => void;
+  onReset: () => void;
+}) {
+  const [draftName, setDraftName] = useState(state.profile.name);
+  const [draftThought, setDraftThought] = useState(journal.thought);
+  const [saveStatus, setSaveStatus] = useState<"" | "Сохранение…" | "Сохранено">("");
+
+  const persistDrafts = useCallback(() => {
+    if (draftName === state.profile.name && draftThought === journal.thought) return;
+    update((draft) => {
+      draft.profile.name = draftName;
+      const item = draft.journals[dateKey] ?? makeJournal(dateKey);
+      item.thought = draftThought;
+      draft.journals[dateKey] = item;
+    });
+    setSaveStatus("Сохранено");
+  }, [dateKey, draftName, draftThought, journal.thought, state.profile.name, update]);
+
+  useEffect(() => {
+    if (draftName === state.profile.name && draftThought === journal.thought) return;
+    setSaveStatus("Сохранение…");
+    const id = window.setTimeout(persistDrafts, 550);
+    return () => window.clearTimeout(id);
+  }, [draftName, draftThought, journal.thought, persistDrafts, state.profile.name]);
+
+  const closeProfile = () => { persistDrafts(); onClose(); };
+  const openCollection = () => { persistDrafts(); onOpenCollection(); };
+
+  return <Modal title="Профиль" onClose={closeProfile} className="large-modal profile-modal">
+    <div className="profile-hero"><div className="avatar-stack"><AvatarDisplay state={state} size="large" />{activeBadge && <ArtImage className="profile-active-badge" src={activeBadge.src} alt={activeBadge.name} />}</div><div><span className="eyebrow">Ваша домашняя орбита</span><h3>{draftName || "Добавьте своё имя"}</h3><p>Данные хранятся только в этом браузере на этом устройстве.</p></div></div>
+    <label className="field"><span>Имя</span><input value={draftName} maxLength={60} onChange={(event) => setDraftName(event.target.value)} onBlur={persistDrafts} placeholder="Как к вам обращаться?" autoComplete="name" /></label>
+    <section className="profile-section"><div className="subheading"><div><h3>Аватар</h3><p>Все 12 образов доступны сразу</p></div><label className="upload-button"><Upload /> {state.profile.avatarMode === "uploaded" ? "Изменить фото" : "Загрузить своё фото"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadPhoto} /></label></div>{photoError && <p className="field-error">{photoError}</p>}<div className="avatar-grid">{AVATARS.map((avatar) => <button key={avatar.id} onClick={() => update((draft) => { draft.profile.selectedAvatarId = avatar.id; draft.profile.avatarMode = "preset"; })} className={state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id ? "selected" : ""}><ArtImage src={avatar.src} alt={avatar.name} /><span>{avatar.name}</span>{state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id && <i><Check /></i>}</button>)}</div>{state.profile.avatarMode === "uploaded" && <button className="text-button danger-text" onClick={() => update((draft) => { draft.profile.uploadedAvatarDataUrl = null; draft.profile.avatarMode = "preset"; })}><Trash2 /> Удалить фото</button>}</section>
+    <section className="profile-section"><h3>Как я сегодня?</h3><div className="mood-grid">{MOODS.map((mood, index) => <button key={mood} className={journal.mood === mood ? "selected" : ""} onClick={() => update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.mood = mood; draft.journals[dateKey] = item; })}><strong>{MOOD_SYMBOLS[index]}</strong><span>{mood}</span></button>)}</div></section>
+    <label className="field thought-field"><span>О чём я сегодня думаю</span><textarea maxLength={280} value={draftThought} onChange={(event) => setDraftThought(event.target.value)} onBlur={persistDrafts} placeholder="Например, о спокойном вечере…" /><small>{saveStatus || `${draftThought.length} / 280`}</small></label>
+    <section className="settings-list"><button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={openCollection}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
+    <div className="profile-footer"><div><strong>Сброс данных</strong><p>Удалить локальные данные приложения и начать заново.</p></div><button className="danger-subtle" onClick={onReset}><RotateCcw /> Сбросить данные</button></div>
+    <p className="notification-note">Системные уведомления зависят от браузера. Для гарантированных напоминаний при полностью закрытом приложении в будущем понадобятся Web Push и сервер расписаний.</p>
+  </Modal>;
+}
+
+function MeterSettingsModal({ state, monthKey, update, onClose, onSaved }: { state: AppState; monthKey: string; update: StateUpdater; onClose: () => void; onSaved: () => void }) {
+  const initialSelected = state.meterSettings.configured
+    ? state.meterSettings.selected
+    : { "hot-water": true, "cold-water": true, gas: false, electricity: true };
+  const [selected, setSelected] = useState<Record<MeterUtilityId, boolean>>({ ...initialSelected });
+  const meterUtilities = state.utilities.filter((utility): utility is UtilityTemplate & { id: MeterUtilityId } => utility.requiresMeterReading);
+  const save = () => {
+    update((draft) => {
+      draft.meterSettings = { configured: true, selected: { ...selected } };
+      const ids = meterUtilities.filter((utility) => selected[utility.id]).map((utility) => utility.id);
+      const ledger = draft.ledgers[monthKey] ?? (draft.ledgers[monthKey] = makeLedger(monthKey));
+      ledger.requiredReadingIds = ids;
+    });
+    onSaved();
+  };
+  return <Modal title="Какие показания вы передаёте?" onClose={onClose} className="meter-settings-modal"><p className="modal-intro">Выбранный набор сохранится для следующих месяцев. Платежи останутся независимыми.</p><div className="meter-picker">{meterUtilities.map((utility) => <label key={utility.id}><UtilityIcon utility={utility} /><span><strong>{utility.name}</strong><small>{selected[utility.id] ? "Показывать каждый месяц" : "Не передаю"}</small></span><input type="checkbox" checked={selected[utility.id]} onChange={(event) => setSelected((current) => ({ ...current, [utility.id]: event.target.checked }))} /></label>)}</div><div className="modal-actions"><button className="secondary" onClick={onClose}>Отмена</button><button className="primary" onClick={save}><Check /> Сохранить</button></div></Modal>;
+}
+
 function ArchiveContent({ state, currentYear }: { state: AppState; currentYear: number }) {
   const years = [...new Set(Object.keys(state.ledgers).map((key) => Number(key.slice(0, 4))))].sort((a, b) => b - a);
   const currentSummary = buildAnnualSummary(state, currentYear);
-  return <div className="archive-content"><div className="archive-year-total"><span>За {currentYear} год</span><strong>{formatKopecks(currentSummary.totalPaidKopecks)}</strong><small>Очков: {currentSummary.totalPoints} · вовремя: {currentSummary.onTimePayments}</small></div>{years.map((year) => { const annual = year < currentYear ? (state.annualSummaries[String(year)] ?? buildAnnualSummary(state, year)) : null; const keys = Object.keys(state.ledgers).filter((key) => key.startsWith(`${year}-`)).sort().reverse(); return <section className="archive-year" key={year}><h3>{year}</h3>{annual && <article className="annual-summary"><div><span className="eyebrow">Годовой итог</span><strong>{formatKopecks(annual.totalPaidKopecks)}</strong></div><div><span>Среднее за месяц</span><strong>{formatKopecks(annual.averageMonthlyKopecks)}</strong></div><div><span>Идеальных месяцев</span><strong>{annual.perfectMonths}</strong></div></article>}{keys.map((key) => { const ledger = state.ledgers[key]; const payments = Object.values(ledger.payments).filter(Boolean); return <details key={key}><summary><span><strong>{formatMonth(key)}</strong><small>{payments.length} из 7 услуг · {pointsForMonth(state, key)} очков</small></span><strong>{formatKopecks(monthTotal(state, key))}</strong></summary><div className="archive-details">{state.utilities.map((utility) => { const payment = ledger.payments[utility.id]; const reading = ledger.readings[utility.id]; return <div key={utility.id}><span>{utility.name}</span><span>{payment ? `${formatKopecks(payment.amountKopecks)} · ${payment.onTime ? "вовремя" : "с опозданием"}` : "Не оплачено"}{utility.requiresMeterReading && ` · показания ${reading ? (reading.onTime ? "вовремя" : "с опозданием") : "не внесены"}`}</span></div>; })}</div></details>; })}</section>; })}</div>;
+  return <div className="archive-content"><div className="archive-year-total"><span>За {currentYear} год</span><strong>{formatKopecks(currentSummary.totalPaidKopecks)}</strong><small>Очков: {currentSummary.totalPoints} · вовремя: {currentSummary.onTimePayments}</small></div>{years.map((year) => { const annual = year < currentYear ? (state.annualSummaries[String(year)] ?? buildAnnualSummary(state, year)) : null; const keys = Object.keys(state.ledgers).filter((key) => key.startsWith(`${year}-`)).sort().reverse(); return <section className="archive-year" key={year}><h3>{year}</h3>{annual && <article className="annual-summary"><div><span className="eyebrow">Годовой итог</span><strong>{formatKopecks(annual.totalPaidKopecks)}</strong></div><div><span>Среднее за месяц</span><strong>{formatKopecks(annual.averageMonthlyKopecks)}</strong></div><div><span>Идеальных месяцев</span><strong>{annual.perfectMonths}</strong></div></article>}{keys.map((key) => { const ledger = state.ledgers[key]; const payments = Object.values(ledger.payments).filter(Boolean); const requiredReadings = new Set(getSelectedMeterIds(state, key)); return <details key={key}><summary><span><strong>{formatMonth(key)}</strong><small>{payments.length} из 7 услуг · {pointsForMonth(state, key)} очков</small></span><strong>{formatKopecks(monthTotal(state, key))}</strong></summary><div className="archive-details">{state.utilities.map((utility) => { const payment = ledger.payments[utility.id]; const reading = ledger.readings[utility.id]; return <div key={utility.id}><span>{utility.name}</span><span>{payment ? `${formatKopecks(payment.amountKopecks)} · ${payment.onTime ? "вовремя" : "с опозданием"}` : "Не оплачено"}{requiredReadings.has(utility.id as MeterUtilityId) && ` · показания ${reading ? (reading.onTime ? "вовремя" : "с опозданием") : "не внесены"}`}</span></div>; })}</div></details>; })}</section>; })}</div>;
 }
