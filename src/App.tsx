@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Droplets,
+  Download,
   Flame,
   Gem,
   Lock,
@@ -573,14 +574,7 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
 
   const closeProfile = () => { persistDrafts(); onClose(); };
   const openCollection = () => { persistDrafts(); onOpenCollection(); };
-  const sendMonthlyReport = () => {
-    const email = draftEmail.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailError("Введите корректный адрес электронной почты.");
-      return;
-    }
-    setEmailError("");
-    persistDrafts();
+  const createMonthlyReport = () => {
     const monthKey = getLocalMonthKey();
     const ledger = state.ledgers[monthKey] ?? makeLedger(monthKey);
     const paymentLines = state.utilities.filter((utility) => utility.enabled).map((utility) => {
@@ -606,7 +600,38 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
       "",
       `Очки за месяц: ${pointsForMonth(state, monthKey)}`,
     ].join("\n");
-    window.location.assign(buildEmailComposeUrl(draftEmailProvider, email, subject, body));
+    return { monthKey, subject, body };
+  };
+
+  const sendMonthlyReport = () => {
+    const email = draftEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError("Введите корректный адрес электронной почты.");
+      return;
+    }
+    setEmailError("");
+    persistDrafts();
+    const { subject, body } = createMonthlyReport();
+    const composeUrl = buildEmailComposeUrl(draftEmailProvider, email, subject, body);
+    if (draftEmailProvider === "apple" || draftEmailProvider === "other") {
+      window.location.assign(composeUrl);
+      return;
+    }
+    const composeWindow = window.open(composeUrl, "_blank");
+    if (composeWindow) composeWindow.opener = null;
+    else window.location.assign(composeUrl);
+  };
+
+  const downloadMonthlyReport = () => {
+    const { monthKey, body } = createMonthlyReport();
+    const url = URL.createObjectURL(new Blob(["\uFEFF", body], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `focus-tool-report-${monthKey}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return <Modal title="Профиль" onClose={closeProfile} className="large-modal profile-modal">
@@ -617,7 +642,7 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
     <section className="profile-section"><div className="subheading"><div><h3>Аватар</h3><p>Все 12 образов доступны сразу</p></div><label className="upload-button"><Upload /> {state.profile.avatarMode === "uploaded" ? "Изменить фото" : "Загрузить своё фото"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadPhoto} /></label></div>{photoError && <p className="field-error">{photoError}</p>}<div className="avatar-grid">{AVATARS.map((avatar) => <button key={avatar.id} onClick={() => update((draft) => { draft.profile.selectedAvatarId = avatar.id; draft.profile.avatarMode = "preset"; })} className={state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id ? "selected" : ""}><ArtImage src={avatar.src} alt={avatar.name} /><span>{avatar.name}</span>{state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id && <i><Check /></i>}</button>)}</div>{state.profile.avatarMode === "uploaded" && <button className="text-button danger-text" onClick={() => update((draft) => { draft.profile.uploadedAvatarDataUrl = null; draft.profile.avatarMode = "preset"; })}><Trash2 /> Удалить фото</button>}</section>
     <section className="profile-section"><h3>Как я сегодня?</h3><div className="mood-grid">{MOODS.map((mood, index) => <button key={mood} className={journal.mood === mood ? "selected" : ""} onClick={() => update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.mood = mood; draft.journals[dateKey] = item; })}><strong>{MOOD_SYMBOLS[index]}</strong><span>{mood}</span></button>)}</div></section>
     <label className="field thought-field"><span>О чём я сегодня думаю</span><textarea maxLength={280} value={draftThought} onChange={(event) => setDraftThought(event.target.value)} onBlur={persistDrafts} placeholder="Например, о спокойном вечере…" /><small>{saveStatus || `${draftThought.length} / 280`}</small></label>
-    <section className="settings-list"><button onClick={sendMonthlyReport}><Mail /> <span><strong>Отправить отчёт через {EMAIL_PROVIDER_LABELS[draftEmailProvider]}</strong><small>{draftEmail.trim() || "Сначала укажите email выше"}</small></span><ChevronRight /></button><button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={openCollection}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
+    <section className="settings-list"><button onClick={sendMonthlyReport}><Mail /> <span><strong>Отправить отчёт через {EMAIL_PROVIDER_LABELS[draftEmailProvider]}</strong><small>{draftEmail.trim() || "Сначала укажите email выше"}</small></span><ChevronRight /></button><button onClick={downloadMonthlyReport}><Download /> <span><strong>Скачать отчёт на компьютер</strong><small>Текстовый файл со всеми данными за текущий месяц</small></span><ChevronRight /></button><button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={openCollection}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
     <div className="profile-footer"><div><strong>Сброс данных</strong><p>Удалить локальные данные приложения и начать заново.</p></div><button className="danger-subtle" onClick={onReset}><RotateCcw /> Сбросить данные</button></div>
     <p className="notification-note">Системные уведомления зависят от браузера. Для гарантированных напоминаний при полностью закрытом приложении в будущем понадобятся Web Push и сервер расписаний.</p>
   </Modal>;
