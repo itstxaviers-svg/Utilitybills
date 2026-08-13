@@ -1,4 +1,4 @@
-const CACHE = "focus-tool-shell-v2";
+const CACHE = "focus-tool-shell-v3";
 const ROOT = new URL("./", self.location.href).pathname;
 
 self.addEventListener("install", (event) => {

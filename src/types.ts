@@ -10,7 +10,7 @@ export type UtilityId =
 
 export type MeterUtilityId = "hot-water" | "cold-water" | "gas" | "electricity";
 
-export type EmailProvider = "gmail" | "apple" | "yandex" | "mailru" | "other";
+export type EmailProvider = "gmail" | "yandex";
 
 export type CharacterId =
   | "sailor-moon"

@@ -79,7 +79,11 @@ function sanitizeState(value: unknown, now = new Date()): AppState {
     ...defaults,
     ...raw,
     version: 2,
-    profile: { ...defaults.profile, ...profile },
+    profile: {
+      ...defaults.profile,
+      ...profile,
+      emailProvider: profile.emailProvider === "yandex" ? "yandex" : "gmail",
+    },
     utilities: defaults.utilities.map((utility) => ({ ...utility, ...(Array.isArray(raw.utilities) ? raw.utilities.find((item) => item?.id === utility.id) : null) })),
     meterSettings: {
       configured: Boolean(meterSettings.configured),
