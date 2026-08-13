@@ -1,8 +1,8 @@
-const CACHE = "focus-tool-shell-v4";
+const CACHE = "focus-tool-shell-v5";
 const ROOT = new URL("./", self.location.href).pathname;
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([ROOT, `${ROOT}manifest.webmanifest`])).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}favicon.svg`])).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
