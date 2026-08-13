@@ -97,7 +97,15 @@ function buildEmailComposeUrl(provider: EmailProvider, email: string, subject: s
   return url.toString();
 }
 
-function copyReportToClipboard(text: string) {
+async function copyReportToClipboard(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Используем совместимый fallback ниже.
+    }
+  }
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.readOnly = true;
@@ -107,7 +115,7 @@ function copyReportToClipboard(text: string) {
   textarea.select();
   const copied = document.execCommand("copy");
   textarea.remove();
-  if (!copied && navigator.clipboard) void navigator.clipboard.writeText(text);
+  return copied;
 }
 
 function UtilityIcon({ utility, size = 20 }: { utility: UtilityTemplate; size?: number }) {
@@ -551,6 +559,7 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
   const [saveStatus, setSaveStatus] = useState<"" | "Сохранение…" | "Сохранено">("");
   const [emailError, setEmailError] = useState("");
   const [emailSendHint, setEmailSendHint] = useState("");
+  const [reportPreview, setReportPreview] = useState<{ subject: string; body: string } | null>(null);
 
   const persistDrafts = useCallback(() => {
     if (draftName === state.profile.name && draftEmail === state.profile.email && draftEmailProvider === state.profile.emailProvider && draftThought === journal.thought) return;
@@ -587,15 +596,17 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
       return `${reading ? "✓" : "○"} ${utility?.name ?? id}: ${reading ? (reading.onTime ? "внесены вовремя" : "внесены с опозданием") : "не внесены"}`;
     });
     const subject = `Focus Tool — отчёт за ${formatMonth(monthKey)}`;
+    const paidCount = paymentLines.filter((line) => line.startsWith("✓")).length;
+    const submittedReadingsCount = readingLines.filter((line) => line.startsWith("✓")).length;
     const body = [
       `Отчёт Focus Tool за ${formatMonth(monthKey)}`,
       "",
-      "Платежи:",
+      `Оплата счетов: ${paidCount} из ${paymentLines.length}`,
       ...paymentLines,
       "",
       `Итого оплачено: ${formatKopecks(monthTotal(state, monthKey))}`,
       "",
-      "Показания:",
+      `Передача показаний: ${submittedReadingsCount} из ${readingLines.length}`,
       ...(readingLines.length ? readingLines : ["Показания не выбраны"]),
       "",
       `Очки за месяц: ${pointsForMonth(state, monthKey)}`,
@@ -603,7 +614,7 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
     return { monthKey, subject, body };
   };
 
-  const sendMonthlyReport = () => {
+  const prepareMonthlyReport = () => {
     const email = draftEmail.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setEmailError("Введите корректный адрес электронной почты.");
@@ -612,9 +623,17 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
     setEmailError("");
     persistDrafts();
     const { subject, body } = createMonthlyReport();
-    copyReportToClipboard(body);
-    setEmailSendHint("Отчёт скопирован. Вставьте его в письмо клавишами ⌘V и нажмите «Отправить».");
-    const composeUrl = buildEmailComposeUrl(draftEmailProvider, email, subject);
+    setReportPreview({ subject, body });
+    setEmailSendHint("Проверьте данные ниже, затем откройте письмо в выбранной почте.");
+  };
+
+  const openPreparedReport = async () => {
+    if (!reportPreview) return;
+    const copied = await copyReportToClipboard(reportPreview.body);
+    setEmailSendHint(copied
+      ? "Полный отчёт скопирован. Вставьте его в письмо клавишами ⌘V и нажмите «Отправить»."
+      : "Не удалось скопировать автоматически. Выделите текст отчёта ниже и скопируйте его вручную.");
+    const composeUrl = buildEmailComposeUrl(draftEmailProvider, draftEmail.trim(), reportPreview.subject);
     const composeWindow = window.open(composeUrl, "_blank");
     if (composeWindow) composeWindow.opener = null;
     else window.location.assign(composeUrl);
@@ -628,7 +647,7 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
     <section className="profile-section"><div className="subheading"><div><h3>Аватар</h3><p>Все 12 образов доступны сразу</p></div><label className="upload-button"><Upload /> {state.profile.avatarMode === "uploaded" ? "Изменить фото" : "Загрузить своё фото"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadPhoto} /></label></div>{photoError && <p className="field-error">{photoError}</p>}<div className="avatar-grid">{AVATARS.map((avatar) => <button key={avatar.id} onClick={() => update((draft) => { draft.profile.selectedAvatarId = avatar.id; draft.profile.avatarMode = "preset"; })} className={state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id ? "selected" : ""}><ArtImage src={avatar.src} alt={avatar.name} /><span>{avatar.name}</span>{state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id && <i><Check /></i>}</button>)}</div>{state.profile.avatarMode === "uploaded" && <button className="text-button danger-text" onClick={() => update((draft) => { draft.profile.uploadedAvatarDataUrl = null; draft.profile.avatarMode = "preset"; })}><Trash2 /> Удалить фото</button>}</section>
     <section className="profile-section"><h3>Как я сегодня?</h3><div className="mood-grid">{MOODS.map((mood, index) => <button key={mood} className={journal.mood === mood ? "selected" : ""} onClick={() => update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.mood = mood; draft.journals[dateKey] = item; })}><strong>{MOOD_SYMBOLS[index]}</strong><span>{mood}</span></button>)}</div></section>
     <label className="field thought-field"><span>О чём я сегодня думаю</span><textarea maxLength={280} value={draftThought} onChange={(event) => setDraftThought(event.target.value)} onBlur={persistDrafts} placeholder="Например, о спокойном вечере…" /><small>{saveStatus || `${draftThought.length} / 280`}</small></label>
-    <section className="settings-list"><button onClick={sendMonthlyReport}><Mail /> <span><strong>Открыть отчёт в {EMAIL_PROVIDER_LABELS[draftEmailProvider]}</strong><small>{draftEmail.trim() || "Сначала укажите email выше"}</small></span><ChevronRight /></button>{emailSendHint && <p className="email-send-hint">{emailSendHint}</p>}<button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={openCollection}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
+    <section className="settings-list"><button onClick={prepareMonthlyReport}><Mail /> <span><strong>Подготовить отчёт для {EMAIL_PROVIDER_LABELS[draftEmailProvider]}</strong><small>{draftEmail.trim() || "Сначала укажите email выше"}</small></span><ChevronRight /></button>{emailSendHint && <p className="email-send-hint">{emailSendHint}</p>}{reportPreview && <div className="email-report-preview"><div><strong>Содержимое отчёта</strong><small>В отчёт включены оплаты, суммы и статусы показаний.</small></div><textarea readOnly value={reportPreview.body} aria-label="Содержимое отчёта" /><button className="primary" onClick={openPreparedReport}><Mail /> Скопировать и открыть в {EMAIL_PROVIDER_LABELS[draftEmailProvider]}</button></div>}<button onClick={enableNotifications}><Bell /> <span><strong>Системные уведомления</strong><small>{state.profile.notificationPreference === "enabled" ? "Включены" : "Только после вашего разрешения"}</small></span><ChevronRight /></button><label><Sparkles /><span><strong>Уменьшить декоративные эффекты</strong><small>Отключить движение орбит и мерцание</small></span><input type="checkbox" checked={state.profile.reducedEffects} onChange={(event) => update((draft) => { draft.profile.reducedEffects = event.target.checked; })} /></label><button onClick={openCollection}><Gem /><span><strong>Коллекция наград</strong><small>Собрано {state.badgeCollection.unlocked.length} из 12</small></span><ChevronRight /></button></section>
     <div className="profile-footer"><div><strong>Сброс данных</strong><p>Удалить локальные данные приложения и начать заново.</p></div><button className="danger-subtle" onClick={onReset}><RotateCcw /> Сбросить данные</button></div>
     <p className="notification-note">Системные уведомления зависят от браузера. Для гарантированных напоминаний при полностью закрытом приложении в будущем понадобятся Web Push и сервер расписаний.</p>
   </Modal>;
