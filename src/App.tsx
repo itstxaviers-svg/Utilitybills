@@ -299,6 +299,19 @@ export default function App() {
     setToast("Оплата сохранена ✨");
   };
 
+  const markPaymentWithoutAmount = (utilityId: UtilityId) => {
+    const actionNow = new Date();
+    const actionMonthKey = getLocalMonthKey(actionNow);
+    update((draft) => {
+      const targetLedger = draft.ledgers[actionMonthKey] ?? (draft.ledgers[actionMonthKey] = makeLedger(actionMonthKey, getSelectedMeterIds(draft)));
+      if (targetLedger.payments[utilityId]) return;
+      const paidAt = actionNow.getTime();
+      targetLedger.payments[utilityId] = { utilityId, amountKopecks: 0, paidAt, deadlineAt: getDeadline(actionMonthKey, 15), onTime: paidAt <= getDeadline(actionMonthKey, 15), updatedAt: paidAt };
+      addEventAndMilestone(draft, `payment:${actionMonthKey}:${utilityId}`, utilityId, "payment");
+    });
+    setToast("Оплата отмечена без суммы ✓");
+  };
+
   const removePayment = () => {
     if (!paymentTarget) return;
     update((draft) => {
@@ -390,7 +403,7 @@ export default function App() {
                     <UtilityIcon utility={utility} />
                     <div className="utility-copy"><strong>{utility.name}</strong><span className={payment ? (payment.onTime ? "status success" : "status late") : overdue ? "status overdue" : "status pending"}>{payment ? (payment.onTime ? "Оплачено вовремя" : "Оплачено с опозданием") : overdue ? "Просрочено" : "Не оплачено"}</span>{payment && <small>{formatKopecks(payment.amountKopecks)} · {formatDate(payment.paidAt)}</small>}</div>
                     <span className="deadline-chip">до 15</span>
-                    <button className={payment ? "row-action done" : "row-action"} onClick={() => openPayment(utility.id)}>{payment ? <><Pencil size={15} /> Изменить</> : <><CircleDollarSign size={17} /> Оплатить</>}</button>
+                    <div className="payment-row-actions"><button className={payment ? "row-action done" : "row-action"} onClick={() => openPayment(utility.id)}>{payment ? <><Pencil size={15} /> Изменить</> : <><CircleDollarSign size={17} /> Оплатить</>}</button>{!payment && <button className="quick-payment-check" onClick={() => markPaymentWithoutAmount(utility.id)} aria-label={`Отметить ${utility.name} оплаченной без суммы`} title="Отметить без суммы"><Check /></button>}</div>
                   </div>
                 );
               })}

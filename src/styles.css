@@ -104,7 +104,11 @@ h1, h2, h3, p { margin-top: 0; }
 .utility-copy small { display: block; margin-top: 3px; color: var(--text-soft); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status { display: inline-block; margin-top: 3px; font-size: 10px; font-weight: 700; }.status.success { color: var(--success); }.status.late, .status.overdue { color: var(--danger); }.status.pending { color: #a47d43; }
 .deadline-chip { align-self: end; padding: 4px 8px; color: #926f36; background: #fff5dc; border: 1px solid #ecd495; border-radius: 99px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
-.row-action { grid-column: 3; align-self: start; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 90px; min-height: 30px; padding: 6px 10px; border: 1px solid rgba(208,130,173,.25); border-radius: 10px; color: #6e4785; background: linear-gradient(135deg, #fce1ef, #ece5fb); font-size: 11px; font-weight: 750; transition: transform .18s, box-shadow .18s; }
+.payment-row-actions { grid-column: 3; align-self: start; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.row-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 90px; min-height: 30px; padding: 6px 10px; border: 1px solid rgba(208,130,173,.25); border-radius: 10px; color: #6e4785; background: linear-gradient(135deg, #fce1ef, #ece5fb); font-size: 11px; font-weight: 750; transition: transform .18s, box-shadow .18s; }
+.quick-payment-check { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; color: #4f8f75; border: 1px solid rgba(79,157,126,.28); border-radius: 10px; background: rgba(228,245,236,.82); transition: transform .18s, box-shadow .18s; }
+.quick-payment-check:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(79,157,126,.15); }
+.quick-payment-check svg { width: 16px; height: 16px; }
 .row-action:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(114,83,157,.13); }.row-action:active { transform: scale(.98); }.row-action.done { color: #417d68; background: var(--success-bg); border-color: rgba(79,157,126,.2); }
 .earned-teaser { margin: 0 17px 17px; display: flex; gap: 10px; align-items: center; padding: 12px; color: #665083; background: linear-gradient(135deg, #f9e4f2, #eee9ff); border-radius: 13px; font-size: 11px; line-height: 1.45; }.earned-teaser svg { color: #d495bd; flex: 0 0 auto; }
 
