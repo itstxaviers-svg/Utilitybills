@@ -572,13 +572,19 @@ function ProfilePanel({ state, dateKey, journal, activeBadge, update, photoError
       "",
       `Очки за месяц: ${pointsForMonth(state, monthKey)}`,
     ].join("\n");
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const gmailComposeUrl = new URL("https://mail.google.com/mail/");
+    gmailComposeUrl.searchParams.set("view", "cm");
+    gmailComposeUrl.searchParams.set("fs", "1");
+    gmailComposeUrl.searchParams.set("to", email);
+    gmailComposeUrl.searchParams.set("su", subject);
+    gmailComposeUrl.searchParams.set("body", body);
+    window.location.assign(gmailComposeUrl.toString());
   };
 
   return <Modal title="Профиль" onClose={closeProfile} className="large-modal profile-modal">
     <div className="profile-hero"><div className="avatar-stack"><AvatarDisplay state={state} size="large" />{activeBadge && <ArtImage className="profile-active-badge" src={activeBadge.src} alt={activeBadge.name} />}</div><div><span className="eyebrow">Ваша домашняя орбита</span><h3>{draftName || "Добавьте своё имя"}</h3><p>Данные хранятся только в этом браузере на этом устройстве.</p></div></div>
     <label className="field"><span>Имя</span><input value={draftName} maxLength={60} onChange={(event) => setDraftName(event.target.value)} onBlur={persistDrafts} placeholder="Как к вам обращаться?" autoComplete="name" /></label>
-    <label className="field"><span>Email для отчётов</span><input type="email" inputMode="email" value={draftEmail} maxLength={120} onChange={(event) => { setDraftEmail(event.target.value); setEmailError(""); }} onBlur={persistDrafts} placeholder="name@example.com" autoComplete="email" />{emailError && <small className="field-error">{emailError}</small>}<small className="field-hint">Адрес хранится только на этом устройстве.</small></label>
+    <label className="field"><span>Email для отчётов</span><input type="email" inputMode="email" value={draftEmail} maxLength={120} onChange={(event) => { setDraftEmail(event.target.value); setEmailError(""); }} onBlur={persistDrafts} placeholder="name@example.com" autoComplete="email" />{emailError && <small className="field-error">{emailError}</small>}<small className="field-hint">Адрес хранится только на этом устройстве. Отчёт откроется в Gmail в браузере.</small></label>
     <section className="profile-section"><div className="subheading"><div><h3>Аватар</h3><p>Все 12 образов доступны сразу</p></div><label className="upload-button"><Upload /> {state.profile.avatarMode === "uploaded" ? "Изменить фото" : "Загрузить своё фото"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadPhoto} /></label></div>{photoError && <p className="field-error">{photoError}</p>}<div className="avatar-grid">{AVATARS.map((avatar) => <button key={avatar.id} onClick={() => update((draft) => { draft.profile.selectedAvatarId = avatar.id; draft.profile.avatarMode = "preset"; })} className={state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id ? "selected" : ""}><ArtImage src={avatar.src} alt={avatar.name} /><span>{avatar.name}</span>{state.profile.avatarMode === "preset" && state.profile.selectedAvatarId === avatar.id && <i><Check /></i>}</button>)}</div>{state.profile.avatarMode === "uploaded" && <button className="text-button danger-text" onClick={() => update((draft) => { draft.profile.uploadedAvatarDataUrl = null; draft.profile.avatarMode = "preset"; })}><Trash2 /> Удалить фото</button>}</section>
     <section className="profile-section"><h3>Как я сегодня?</h3><div className="mood-grid">{MOODS.map((mood, index) => <button key={mood} className={journal.mood === mood ? "selected" : ""} onClick={() => update((draft) => { const item = draft.journals[dateKey] ?? makeJournal(dateKey); item.mood = mood; draft.journals[dateKey] = item; })}><strong>{MOOD_SYMBOLS[index]}</strong><span>{mood}</span></button>)}</div></section>
     <label className="field thought-field"><span>О чём я сегодня думаю</span><textarea maxLength={280} value={draftThought} onChange={(event) => setDraftThought(event.target.value)} onBlur={persistDrafts} placeholder="Например, о спокойном вечере…" /><small>{saveStatus || `${draftThought.length} / 280`}</small></label>
